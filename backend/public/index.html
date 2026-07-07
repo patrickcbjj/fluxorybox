@@ -91,6 +91,11 @@
     .download p { margin:0; color:var(--muted); font-size:14px; }
     .ver { font-size:11.5px; color:var(--accent-2); font-weight:600; border:1px solid rgba(109,124,255,.3);
       border-radius:999px; padding:3px 10px; display:inline-block; margin-top:8px; }
+    .prev-versions { text-align:center; margin:16px 0 0; }
+    .prev-versions a { display:inline-flex; align-items:center; gap:7px; color:var(--muted); font-size:13px;
+      text-decoration:none; transition:color .15s; }
+    .prev-versions a:hover { color:var(--accent-2); }
+    .prev-versions svg { width:15px; height:15px; }
 
     footer { border-top:1px solid var(--line); padding:28px 0; color:var(--muted-2); font-size:13px;
       display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
@@ -113,7 +118,7 @@
     <div class="wrap nav-in">
       <a class="brand" href="/"><img src="/logo.svg" alt="" /><span>FluxoryBox</span></a>
       <div class="nav-actions">
-        <a class="btn btn-ghost" href="/FluxoryBox-1.1-beta.apk" download>
+        <a class="btn btn-ghost" href="/FluxoryBox-1.1.1-beta.apk" download>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M5 21h14"/></svg>
           Baixar APK
         </a>
@@ -135,12 +140,12 @@
           <a class="btn btn-primary" href="/app.html">Entrar no mail
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
           </a>
-          <a class="btn btn-ghost" href="/FluxoryBox-1.1-beta.apk" download>
+          <a class="btn btn-ghost" href="/FluxoryBox-1.1.1-beta.apk" download>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M5 21h14"/></svg>
             Baixar para Android
           </a>
         </div>
-        <p class="cta-note">Grátis · Android 5.0+ · versão 1.1 beta</p>
+        <p class="cta-note">Grátis · Android 5.0+ · versão 1.1.1 beta</p>
       </div>
 
       <div class="mock" aria-hidden="true">
@@ -197,14 +202,20 @@
         <div>
           <h3>FluxoryBox para Android</h3>
           <p>Baixe o APK e instale direto no seu celular.</p>
-          <span class="ver">v1.1 beta</span>
+          <span class="ver">v1.1.1 beta</span>
         </div>
       </div>
-      <a class="btn btn-primary" href="/FluxoryBox-1.1-beta.apk" download>
+      <a class="btn btn-primary" href="/FluxoryBox-1.1.1-beta.apk" download>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M5 21h14"/></svg>
         Baixar APK
       </a>
     </div>
+    <p class="prev-versions">
+      <a href="https://github.com/patrickcbjj/fluxorybox/releases" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6a2 2 0 0 0 2 2h6"/><path d="M8 3h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>
+        Versões anteriores
+      </a>
+    </p>
   </section>
 
   <footer class="wrap">

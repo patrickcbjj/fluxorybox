@@ -93,18 +93,34 @@ class AccountAvatar extends StatelessWidget {
   const AccountAvatar({super.key, required this.account, this.size = 40});
   @override
   Widget build(BuildContext context) {
-    final url = account['avatarUrl']?.toString();
+    final url = account['avatarUrl']?.toString() ?? '';
     final email = account['email']?.toString() ?? '';
-    if (url != null && url.isNotEmpty) {
-      return CircleAvatar(radius: size / 2, backgroundImage: NetworkImage(url), backgroundColor: surface2);
+    final fallback = _initialsCircle(initials(account['displayName']?.toString(), email), accColor(email), size);
+    if (url.isEmpty) return fallback;
+
+    // Microsoft/Hotmail vem como data URL (data:image/...;base64,...) — NetworkImage não
+    // renderiza data:, então decodifico e uso Image.memory. Google vem como URL http normal.
+    if (url.startsWith('data:')) {
+      try {
+        final bytes = base64Decode(url.substring(url.indexOf(',') + 1));
+        return ClipOval(child: Image.memory(bytes, width: size, height: size, fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => fallback));
+      } catch (_) {
+        return fallback;
+      }
     }
-    return CircleAvatar(
-      radius: size / 2,
-      backgroundColor: accColor(email),
-      child: Text(initials(account['displayName']?.toString(), email),
-          style: TextStyle(fontSize: size * 0.36, fontWeight: FontWeight.w600, color: Colors.white)),
-    );
+    return ClipOval(child: Image.network(url, width: size, height: size, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+        loadingBuilder: (ctx, child, prog) => prog == null ? child : fallback));
   }
+}
+
+Widget _initialsCircle(String text, Color color, double size) {
+  return CircleAvatar(
+    radius: size / 2,
+    backgroundColor: color,
+    child: Text(text, style: TextStyle(fontSize: size * 0.36, fontWeight: FontWeight.w600, color: Colors.white)),
+  );
 }
 
 class SenderAvatar extends StatelessWidget {

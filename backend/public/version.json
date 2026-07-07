@@ -1,6 +1,6 @@
 {
-  "versionCode": 3,
-  "versionName": "1.1.0",
-  "apkUrl": "/FluxoryBox-1.1-beta.apk",
-  "notes": "Paridade com a web: contas separadas com avatares, pastas, busca no servidor, favoritar, marcar não lido, responder a todos, encaminhar, cc/bcc, anexos (baixar e enviar) e atualização automática dentro do app."
+  "versionCode": 4,
+  "versionName": "1.1.1",
+  "apkUrl": "/FluxoryBox-1.1.1-beta.apk",
+  "notes": "Correção: fotos de perfil das contas Microsoft/Hotmail agora aparecem no app (avatar via data URL) e há fallback para as iniciais quando a foto não carrega."
 }
