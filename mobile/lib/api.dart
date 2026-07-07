@@ -135,6 +135,13 @@ class Api {
   static Future<dynamic> send(int accountId, Map body) async =>
       await _post('/api/accounts/$accountId/send', body);
 
+  // Registra/remove o token FCM deste dispositivo pra receber push de email novo.
+  static Future<dynamic> registerPush(String token) async =>
+      await _post('/api/push/register', {'token': token});
+
+  static Future<dynamic> unregisterPush(String token) async =>
+      await _post('/api/push/unregister', {'token': token});
+
   static Future<dynamic> move(int accountId, int uid, String folder, String target) async =>
       await _post('/api/accounts/$accountId/messages/$uid/move?folder=${Uri.encodeComponent(folder)}',
           {'target': target});

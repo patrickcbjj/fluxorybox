@@ -5,6 +5,10 @@ backend/.env
 backend/data/
 *.db
 *.sqlite
+# Firebase (config do cliente + chave de conta de serviço do FCM)
+mobile/android/app/google-services.json
+backend/fcm-service-account.json
+**/fcm-service-account.json
 
 # ===== Node =====
 node_modules/

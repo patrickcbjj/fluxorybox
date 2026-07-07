@@ -1,9 +1,22 @@
-import { listAccounts, getAccount } from '../db.js';
+import { listAccounts, getAccount, addPushToken, removePushToken } from '../db.js';
 import { listMessages, getMessage, setFlags, moveMessage, listFolders, getAttachment, searchMessages } from '../imap.js';
 import { sendMail } from '../smtp.js';
 import { config } from '../config.js';
 
 export default async function messagesRoutes(app) {
+  // Registra/remove o token FCM deste dispositivo (push de email novo).
+  app.post('/api/push/register', async (req, reply) => {
+    const { token } = req.body || {};
+    if (!token) return reply.code(400).send({ error: 'token é obrigatório' });
+    addPushToken(token);
+    return { ok: true };
+  });
+  app.post('/api/push/unregister', async (req, reply) => {
+    const { token } = req.body || {};
+    if (token) removePushToken(token);
+    return { ok: true };
+  });
+
   // Caixa unificada: junta a INBOX de todas as contas, ordenada por data.
   app.get('/api/inbox', async (req, reply) => {
     const limit = Number(req.query.limit) || config.defaultLimit;

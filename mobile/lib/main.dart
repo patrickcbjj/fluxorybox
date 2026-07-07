@@ -8,10 +8,12 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'api.dart';
 import 'updater.dart';
+import 'notifications.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Api.load();
+  try { await Notifications.init(); } catch (_) {/* segue sem push se o Firebase falhar */}
   runApp(const FluxoryBoxApp());
 }
 
@@ -248,9 +250,10 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _boot();
     _poll = Timer.periodic(const Duration(seconds: 30), (_) => _refreshSilent());
-    // Checa atualização do app logo após montar a tela.
+    // Checa atualização do app e pede permissão de notificação após montar a tela.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Updater.check(context);
+      Notifications.requestAndRegister();
     });
   }
 
@@ -448,7 +451,14 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
               onSelected: (v) async {
                 if (v == 'update') {
                   Updater.check(context, auto: false);
+                } else if (v == 'notif') {
+                  final ok = await Notifications.requestAndRegister();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(ok ? 'Notificações ativadas.' : 'Permissão de notificação negada.')));
+                  }
                 } else if (v == 'logout') {
+                  await Notifications.unregister();
                   await Api.logout();
                   if (context.mounted) {
                     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
@@ -456,6 +466,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                 }
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(value: 'notif', child: Row(children: [Icon(Icons.notifications_active_rounded, size: 20), SizedBox(width: 10), Text('Ativar notificações')])),
                 PopupMenuItem(value: 'update', child: Row(children: [Icon(Icons.system_update_rounded, size: 20), SizedBox(width: 10), Text('Buscar atualizações')])),
                 PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout_rounded, size: 20), SizedBox(width: 10), Text('Sair')])),
               ],

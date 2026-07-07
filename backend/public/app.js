@@ -232,6 +232,7 @@ async function loadList(reset = true) {
       const page = data.messages || [];
       currentMessages = (reset || offset === 0) ? page : currentMessages.concat(page);
     }
+    markKnown(currentMessages); // baseline: não notifica o que já estava lá
     renderList(currentFiltered());
   } catch (e) {
     el('messageList').innerHTML = `<div class="empty err">${esc(e.message)}</div>`;
@@ -439,11 +440,37 @@ function clearServerSearch() {
 }
 el('refreshBtn').onclick = () => { serverSearching = false; loadList(true); };
 
+// ---------- Notificações (Web Notifications API) ----------
+let knownIds = null; // Set de "accountId:uid" já conhecidos (null até o 1º carregamento)
+function msgKey(m) { return `${m.accountId}:${m.uid}`; }
+function markKnown(msgs) { knownIds = new Set(msgs.map(msgKey)); }
+// Pede permissão de notificação (uma vez, se ainda não decidido).
+function ensureNotifyPermission() {
+  try {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  } catch (_) {}
+}
+function notifyNew(msgs) {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || knownIds === null) return;
+  const novos = msgs.filter((m) => !knownIds.has(msgKey(m)) && m.seen !== true).slice(0, 5);
+  for (const m of novos) {
+    const f = (m.from && m.from[0]) || {};
+    try {
+      const n = new Notification(f.name || f.address || 'Novo email', {
+        body: m.subject || '(sem assunto)', tag: msgKey(m), icon: '/favicon-180.png',
+      });
+      n.onclick = () => { window.focus(); openMessage(m); n.close(); };
+    } catch (_) {}
+  }
+}
+
 // ---------- Tempo real (polling + foco) ----------
 let pollTimer = null;
 function startPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(refreshSilent, 30000); }
 async function refreshSilent() {
-  if (document.hidden || !el('gate').classList.contains('hidden')) return;
+  if (!el('gate').classList.contains('hidden')) return; // só quando logado (roda mesmo com aba em 2º plano)
   const listEl = el('messageList');
   const scroll = listEl.scrollTop;
   try {
@@ -455,8 +482,9 @@ async function refreshSilent() {
       const data = await api(`/api/accounts/${view}/messages?folder=${encodeURIComponent(currentFolder)}&limit=${span}&offset=0`);
       currentMessages = data.messages || [];
     }
-    renderList(currentFiltered());
-    listEl.scrollTop = scroll; // preserva a posição
+    notifyNew(currentMessages);  // avisa antes de atualizar a baseline
+    markKnown(currentMessages);
+    if (!serverSearching) { renderList(currentFiltered()); listEl.scrollTop = scroll; }
   } catch (_) { /* silencioso */ }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSilent(); });
@@ -621,7 +649,7 @@ el('cpSend').onclick = async () => {
 async function start() {
   try {
     await api('/api/accounts'); hideGate();
-    await loadAccounts(); selectView('unified'); startPolling();
+    await loadAccounts(); selectView('unified'); startPolling(); ensureNotifyPermission();
   } catch (e) { if (e.message !== '401') showGate(e.message); }
 }
 start();

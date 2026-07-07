@@ -26,6 +26,14 @@ db.exec(`
   );
 `);
 
+// Tokens FCM dos dispositivos (push de email novo).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS push_tokens (
+    token      TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Migração: colunas p/ contas OAuth (login "Entrar com ...").
 const cols = db.prepare('PRAGMA table_info(accounts)').all().map((c) => c.name);
 if (!cols.includes('auth_type')) db.exec("ALTER TABLE accounts ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password'");
@@ -167,6 +175,18 @@ export function seedFromEnv() {
   }
   if (n) console.log(`[db] ${n} conta(s) semeada(s) via SEED_ACCOUNTS.`);
   return n;
+}
+
+// ---- Tokens de push (FCM) ----
+export function addPushToken(token) {
+  if (!token) return;
+  db.prepare('INSERT OR IGNORE INTO push_tokens (token) VALUES (?)').run(token);
+}
+export function removePushToken(token) {
+  db.prepare('DELETE FROM push_tokens WHERE token = ?').run(token);
+}
+export function listPushTokens() {
+  return db.prepare('SELECT token FROM push_tokens').all().map((r) => r.token);
 }
 
 export default db;

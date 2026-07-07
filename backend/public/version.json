@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "1.1.1",
-  "apkUrl": "/FluxoryBox-1.1.1-beta.apk",
-  "notes": "Correção: fotos de perfil das contas Microsoft/Hotmail agora aparecem no app (avatar via data URL) e há fallback para as iniciais quando a foto não carrega."
+  "versionCode": 5,
+  "versionName": "1.2.0",
+  "apkUrl": "/FluxoryBox-1.2.0-beta.apk",
+  "notes": "Notificações: o app pede permissão e mostra notificação de email novo na barra do Android (push via FCM). A web também pede permissão e avisa de emails novos com a aba aberta."
 }
