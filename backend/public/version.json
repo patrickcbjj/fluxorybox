@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "1.1.7",
-  "apkUrl": "/FluxoryBox-1.1.7-beta.apk",
-  "notes": "Visual mais suave: ao atualizar a caixa, os emails continuam na tela com uma barrinha fina de progresso (não somem mais). Primeiro carregamento mostra placeholders animados no lugar da roda de load, e a lista ganhou um acabamento mais refinado."
+  "versionCode": 11,
+  "versionName": "1.1.8",
+  "apkUrl": "/FluxoryBox-1.1.8-beta.apk",
+  "notes": "Correção na leitura de emails no Android: o corpo do email agora aparece em um cartão branco com texto escuro (como no Gmail/Outlook), então não fica mais texto escuro sobre fundo escuro nem cores ilegíveis."
 }

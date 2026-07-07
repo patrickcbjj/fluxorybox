@@ -986,10 +986,37 @@ class _MessageScreenState extends State<MessageScreen> {
                           ]),
                         ],
                         const Divider(height: 28, color: line),
+                        // Emails são feitos para fundo branco. Renderizar o HTML direto no
+                        // tema escuro deixa o texto escuro do email ilegível. Então mostro o
+                        // corpo num "papel" branco com texto escuro (igual Gmail/Outlook).
                         if ((full['html'] ?? '').toString().isNotEmpty)
-                          HtmlWidget(full['html'])
+                          Container(
+                            width: double.infinity,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.all(14),
+                            child: HtmlWidget(
+                              full['html'],
+                              textStyle: const TextStyle(color: Color(0xFF1A1A1A), fontSize: 14, height: 1.45),
+                            ),
+                          )
                         else
-                          Text((full['text'] ?? '').toString()),
+                          Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: line),
+                            ),
+                            padding: const EdgeInsets.all(14),
+                            child: SelectableText(
+                              (full['text'] ?? '').toString(),
+                              style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+                            ),
+                          ),
                       ]),
                     ),
                   ),
