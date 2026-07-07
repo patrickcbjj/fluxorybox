@@ -137,12 +137,23 @@ async function tokenRequest(url, body) {
 }
 
 // Dado um account OAuth (com refreshToken decriptado), devolve um access_token válido.
+// Cache de access tokens em memória: evita renovar a cada operação (o que estourava
+// o throttle da Microsoft/Google quando o poller passou a rodar a cada 60s).
+// Chave por provedor+email; guarda o token até ~1min antes de expirar.
+const accessTokenCache = new Map();
+
 export async function accessTokenFor(account) {
   if (!account.refreshToken) {
     throw new Error(`Conta OAuth ${account.email} sem refresh token — reautorize.`);
   }
+  const key = `${account.provider}:${account.email}`;
+  const cached = accessTokenCache.get(key);
+  if (cached && Date.now() < cached.exp - 60000) return cached.token;
+
   const data = await refreshAccessToken(account.provider, account.refreshToken);
   if (!data.access_token) throw new Error('Falha ao renovar access token.');
+  const exp = Date.now() + (Number(data.expires_in) || 3600) * 1000;
+  accessTokenCache.set(key, { token: data.access_token, exp });
   return data.access_token;
 }
 

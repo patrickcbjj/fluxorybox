@@ -83,7 +83,11 @@ export default async function messagesRoutes(app) {
     const folder = req.query.folder || 'INBOX';
     const limit = Number(req.query.limit) || config.defaultLimit;
     const offset = Number(req.query.offset) || 0;
-    return listMessages(account, { folder, limit, offset });
+    try {
+      return await listMessages(account, { folder, limit, offset });
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
   });
 
   // Lê uma mensagem específica (corpo completo).
@@ -131,8 +135,8 @@ export default async function messagesRoutes(app) {
   app.post('/api/accounts/:id/send', async (req, reply) => {
     const account = getAccount(Number(req.params.id), { withSecret: true });
     if (!account) return reply.code(404).send({ error: 'conta não encontrada' });
-    const { to, subject } = req.body || {};
-    if (!to || !subject) return reply.code(400).send({ error: 'to e subject são obrigatórios' });
+    const { to } = req.body || {};
+    if (!to) return reply.code(400).send({ error: 'informe o destinatário (Para)' });
     try {
       const result = await sendMail(account, req.body);
       return result;

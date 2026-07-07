@@ -14,6 +14,15 @@ import { startPoller } from './poller.js';
 assertConfig();
 seedFromEnv();
 
+// Rede de segurança: um erro solto (ex.: conexão IMAP de uma conta problemática no
+// poller) NÃO pode derrubar o processo e causar 502 intermitente nos envios.
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.message || err);
+});
+
 const app = Fastify({ logger: true, bodyLimit: 25 * 1024 * 1024 });
 
 await app.register(cors, { origin: true });

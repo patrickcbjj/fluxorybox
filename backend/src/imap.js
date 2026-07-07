@@ -16,6 +16,9 @@ async function connect(account) {
     // Alguns servidores (Outlook) exigem TLS mais tolerante.
     tls: { rejectUnauthorized: false },
   });
+  // ImapFlow é um EventEmitter: um evento 'error' sem listener DERRUBA o processo.
+  // Com o listener, o erro só rejeita a operação em curso (tratada nos try/catch).
+  client.on('error', () => {});
   await client.connect();
   return client;
 }
