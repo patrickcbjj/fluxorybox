@@ -6,6 +6,7 @@ import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
 import 'updater.dart';
 import 'notifications.dart';
@@ -356,9 +357,15 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _reconnect(Map a) async {
-    // Conta OAuth: o fluxo Microsoft/Google ainda não roda dentro do app.
+    // Conta OAuth: reabre o login Microsoft/Google no navegador.
     if (a['authType'] == 'oauth') {
-      _snack('Reconecte "${a['email']}" pelo site fluxorybox.discloud.app (login ${a['provider'] ?? 'OAuth'}).');
+      final prov = (a['provider'] ?? 'microsoft').toString();
+      final ok = await runOAuthFlow(context, prov, reconnectEmail: a['email'].toString());
+      if (ok) {
+        _snack('Conta reconectada.');
+        try { _accounts = await Api.accounts(); } catch (_) {}
+        await _load(reset: true);
+      }
       return;
     }
     // Conta por senha: reinserir a senha de app.
@@ -1211,9 +1218,21 @@ class _AccountsScreenState extends State<AccountsScreen> {
     final email = TextEditingController();
     final pass = TextEditingController();
     String? result;
+    Map oauth = {};
+    try { oauth = await Api.oauthStatus(); } catch (_) {}
+    if (!mounted) return;
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        Future<void> oauthLogin(String provider) async {
+          Navigator.pop(ctx); // fecha o diálogo antes de abrir o navegador
+          final ok = await runOAuthFlow(context, provider);
+          if (!mounted) return;
+          if (ok) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conta conectada.')));
+            _load();
+          }
+        }
         Future<void> test() async {
           setD(() => result = 'Testando...');
           try {
@@ -1232,7 +1251,22 @@ class _AccountsScreenState extends State<AccountsScreen> {
         return AlertDialog(
           title: const Text('Adicionar conta'),
           content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (oauth['microsoft'] == true)
+                Padding(padding: const EdgeInsets.only(bottom: 8),
+                    child: oauthButton('microsoft', 'Entrar com a Microsoft', () => oauthLogin('microsoft'))),
+              if (oauth['google'] == true)
+                Padding(padding: const EdgeInsets.only(bottom: 8),
+                    child: oauthButton('google', 'Entrar com o Google', () => oauthLogin('google'))),
+              if (oauth['microsoft'] == true || oauth['google'] == true)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 6),
+                  child: Row(children: [
+                    Expanded(child: Divider(color: line)),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('ou senha de app', style: TextStyle(fontSize: 12, color: muted))),
+                    Expanded(child: Divider(color: line)),
+                  ]),
+                ),
               TextField(controller: name, decoration: const InputDecoration(labelText: 'Nome')),
               TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
               TextField(controller: pass, obscureText: true, decoration: const InputDecoration(labelText: 'Senha de app')),
@@ -1290,6 +1324,174 @@ class _AccountsScreenState extends State<AccountsScreen> {
 }
 
 // ---------------- Shared ----------------
+// ---------------- OAuth (login Microsoft/Google via navegador) ----------------
+// Abre o fluxo no navegador do sistema (o Google bloqueia OAuth em WebView embutido) e
+// detecta a conclusão por polling em /api/accounts: conta nova (add) ou conta que voltou
+// a ficar conectada (reconnect).
+Future<bool> runOAuthFlow(BuildContext context, String provider, {String? reconnectEmail}) async {
+  final before = <String>{};
+  try {
+    for (final a in await Api.accounts()) {
+      before.add(a['email'].toString().toLowerCase());
+    }
+  } catch (_) {}
+
+  bool launched = false;
+  try {
+    launched = await launchUrl(Uri.parse(Api.oauthStartUrl(provider)), mode: LaunchMode.externalApplication);
+  } catch (_) {}
+  if (!launched) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não foi possível abrir o navegador.')));
+    }
+    return false;
+  }
+
+  Future<bool> check() async {
+    try {
+      final accs = (await Api.accounts()).cast<Map>();
+      if (reconnectEmail != null) {
+        final a = accs.firstWhere(
+            (x) => x['email'].toString().toLowerCase() == reconnectEmail.toLowerCase(),
+            orElse: () => {});
+        return a.isNotEmpty && a['disconnected'] != true;
+      }
+      final now = accs.map((x) => x['email'].toString().toLowerCase()).toSet();
+      return now.difference(before).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  if (!context.mounted) return false;
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _OAuthWaitDialog(check: check, provider: provider),
+  );
+  return ok == true;
+}
+
+class _OAuthWaitDialog extends StatefulWidget {
+  final Future<bool> Function() check;
+  final String provider;
+  const _OAuthWaitDialog({required this.check, required this.provider});
+  @override
+  State<_OAuthWaitDialog> createState() => _OAuthWaitDialogState();
+}
+
+class _OAuthWaitDialogState extends State<_OAuthWaitDialog> {
+  Timer? _timer;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _tick() async {
+    if (_busy) return;
+    _busy = true;
+    final ok = await widget.check();
+    _busy = false;
+    if (ok && mounted) {
+      _timer?.cancel();
+      Navigator.pop(context, true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = widget.provider == 'microsoft' ? 'Microsoft' : 'Google';
+    return AlertDialog(
+      title: Text('Entrar com $name'),
+      content: const Row(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+        SizedBox(width: 14),
+        Expanded(child: Text(
+            'Conclua o login no navegador que abriu. Ao terminar, volte para o app — a conexão é detectada automaticamente.',
+            style: TextStyle(fontSize: 13))),
+      ]),
+      actions: [
+        TextButton(onPressed: () { _timer?.cancel(); Navigator.pop(context, false); }, child: const Text('Cancelar')),
+        FilledButton(onPressed: _tick, child: const Text('Já concluí')),
+      ],
+    );
+  }
+}
+
+// Botão de provedor com logo vetorial (sem emoji).
+Widget oauthButton(String provider, String label, VoidCallback onTap) {
+  return OutlinedButton(
+    onPressed: onTap,
+    style: OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+      side: const BorderSide(color: line),
+      foregroundColor: Colors.white,
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(width: 20, height: 20, child: provider == 'microsoft' ? const _MicrosoftLogo() : const _GoogleLogo()),
+      const SizedBox(width: 12),
+      Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+    ]),
+  );
+}
+
+class _MicrosoftLogo extends StatelessWidget {
+  const _MicrosoftLogo();
+  @override
+  Widget build(BuildContext context) {
+    return GridView.count(
+      crossAxisCount: 2, mainAxisSpacing: 2, crossAxisSpacing: 2,
+      physics: const NeverScrollableScrollPhysics(),
+      children: const [
+        ColoredBox(color: Color(0xFFF25022)),
+        ColoredBox(color: Color(0xFF7FBA00)),
+        ColoredBox(color: Color(0xFF00A4EF)),
+        ColoredBox(color: Color(0xFFFFB900)),
+      ],
+    );
+  }
+}
+
+class _GoogleLogo extends StatelessWidget {
+  const _GoogleLogo();
+  @override
+  Widget build(BuildContext context) {
+    return const CustomPaint(painter: _GooglePainter());
+  }
+}
+
+// "G" do Google desenhado com as 4 cores (aproximação vetorial).
+class _GooglePainter extends CustomPainter {
+  const _GooglePainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2;
+    final sw = size.width * 0.22;
+    final rect = Rect.fromCircle(center: c, radius: r - sw / 2);
+    final p = Paint()..style = PaintingStyle.stroke..strokeWidth = sw..strokeCap = StrokeCap.butt;
+    p.color = const Color(0xFF4285F4); canvas.drawArc(rect, -0.35, 1.4, false, p);   // azul (direita)
+    p.color = const Color(0xFF34A853); canvas.drawArc(rect, 1.15, 1.4, false, p);    // verde (baixo)
+    p.color = const Color(0xFFFBBC05); canvas.drawArc(rect, 2.6, 1.2, false, p);     // amarelo (esquerda)
+    p.color = const Color(0xFFEA4335); canvas.drawArc(rect, 3.7, 1.3, false, p);     // vermelho (cima)
+    // barra horizontal do "G"
+    final bar = Paint()..color = const Color(0xFF4285F4)..strokeWidth = sw..strokeCap = StrokeCap.butt;
+    canvas.drawLine(c, Offset(c.dx + r - sw / 2, c.dy), bar);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _ErrorView extends StatelessWidget {
   final String error;
   final VoidCallback onRetry;

@@ -48,6 +48,17 @@ flutter {
     source = "../.."
 }
 
+// O url_launcher puxa androidx.core 1.17 / browser 1.9, que exigem AGP 8.9.1. O projeto
+// está pinado em AGP 8.7.3 de propósito (o file_picker quebra em AGP>=9). Forço versões
+// dessas libs compatíveis com o AGP atual.
+configurations.all {
+    resolutionStrategy {
+        force("androidx.core:core:1.15.0")
+        force("androidx.core:core-ktx:1.15.0")
+        force("androidx.browser:browser:1.8.0")
+    }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

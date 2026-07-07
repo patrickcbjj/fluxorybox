@@ -134,6 +134,14 @@ class Api {
     return res.bodyBytes;
   }
 
+  // Quais provedores OAuth (Microsoft/Google) o servidor tem configurados.
+  static Future<Map> oauthStatus() async => await _get('/api/oauth/status');
+
+  // URL de início do login OAuth (aberta no navegador do sistema). O token vai na query
+  // porque a navegação top-level não manda header Authorization.
+  static String oauthStartUrl(String provider) =>
+      '$baseUrl/api/oauth/$provider/start?token=${Uri.encodeComponent(token)}';
+
   static Future<dynamic> testAccount(Map body) async =>
       await _post('/api/accounts/test', body);
 
