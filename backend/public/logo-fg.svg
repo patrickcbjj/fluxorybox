@@ -1,0 +1,24 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="flap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6D7CFF"/>
+      <stop offset="1" stop-color="#8B7BFF"/>
+    </linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#20204a" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+  <!-- Envelope + fluxo escalados p/ o safe zone do ícone adaptativo -->
+  <g transform="translate(153.6,153.6) scale(0.70)">
+    <g stroke="#ffffff" stroke-linecap="round" opacity="0.6">
+      <line x1="150" y1="470" x2="250" y2="470" stroke-width="26"/>
+      <line x1="120" y1="540" x2="250" y2="540" stroke-width="26" opacity="0.8"/>
+      <line x1="165" y1="610" x2="250" y2="610" stroke-width="26" opacity="0.55"/>
+    </g>
+    <g filter="url(#sh)">
+      <rect x="300" y="322" width="500" height="380" rx="46" fill="#ffffff"/>
+      <path d="M330 360 L550 528 L770 360" fill="none" stroke="url(#flap)" stroke-width="40"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

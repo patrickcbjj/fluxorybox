@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FluxoryBox — Seus emails, num lugar só</title>
+  <meta name="description" content="Cliente de email unificado para Gmail, Outlook e mais. Na web e no Android. Sem depender dos apps deles." />
+  <link rel="icon" href="/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/favicon-180.png" />
+  <style>
+    :root {
+      --bg:#0d0f14; --surface:#14171e; --surface-2:#1b1f28; --line:#262b36;
+      --text:#e7e9ef; --muted:#8b93a6; --muted-2:#6b7387; --accent:#6d7cff; --accent-2:#8b7bff;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; font-family:"Segoe UI",-apple-system,Roboto,Helvetica,Arial,sans-serif;
+      background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; line-height:1.5; }
+    a { color:inherit; text-decoration:none; }
+    .wrap { max-width:1120px; margin:0 auto; padding:0 24px; }
+    .btn { display:inline-flex; align-items:center; gap:8px; border-radius:11px; padding:12px 20px;
+      font-weight:600; font-size:14px; cursor:pointer; border:none; transition:filter .15s, transform .05s; }
+    .btn:active { transform:translateY(1px); }
+    .btn-primary { background:var(--accent); color:#fff; }
+    .btn-primary:hover { filter:brightness(1.1); }
+    .btn-ghost { background:var(--surface-2); color:var(--text); border:1px solid var(--line); }
+    .btn-ghost:hover { background:#222735; }
+    .btn svg { width:17px; height:17px; }
+
+    /* Navbar */
+    .nav { position:sticky; top:0; z-index:20; backdrop-filter:blur(10px);
+      background:rgba(13,15,20,.72); border-bottom:1px solid var(--line); }
+    .nav-in { display:flex; align-items:center; justify-content:space-between; height:66px; }
+    .brand { display:flex; align-items:center; gap:11px; font-weight:700; font-size:17px; letter-spacing:-.01em; }
+    .brand img { width:34px; height:34px; border-radius:9px; }
+    .nav-actions { display:flex; align-items:center; gap:10px; }
+
+    /* Hero */
+    .hero { position:relative; overflow:hidden; }
+    .hero::before { content:""; position:absolute; width:900px; height:900px; left:50%; top:-540px;
+      transform:translateX(-50%); background:radial-gradient(circle, rgba(109,124,255,.22), transparent 62%); }
+    .hero-in { position:relative; display:grid; grid-template-columns:1.05fr .95fr; gap:48px; align-items:center;
+      padding:84px 0 76px; }
+    .eyebrow { display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600;
+      color:var(--accent-2); background:rgba(109,124,255,.12); border:1px solid rgba(109,124,255,.25);
+      padding:6px 12px; border-radius:999px; margin-bottom:20px; }
+    .eyebrow .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); }
+    h1 { font-size:52px; line-height:1.05; letter-spacing:-.03em; margin:0 0 18px; }
+    h1 .grad { background:linear-gradient(120deg,var(--accent),var(--accent-2)); -webkit-background-clip:text;
+      background-clip:text; color:transparent; }
+    .lead { font-size:17px; color:var(--muted); max-width:520px; margin:0 0 28px; }
+    .hero-cta { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .cta-note { color:var(--muted-2); font-size:12.5px; margin-top:14px; }
+
+    /* Mock */
+    .mock { background:var(--surface); border:1px solid var(--line); border-radius:18px; overflow:hidden;
+      box-shadow:0 30px 70px rgba(0,0,0,.5); }
+    .mock-top { display:flex; align-items:center; gap:7px; padding:13px 15px; border-bottom:1px solid var(--line); }
+    .mock-top i { width:11px; height:11px; border-radius:50%; background:#2c3140; display:block; }
+    .mock-body { display:grid; grid-template-columns:56px 1fr; height:326px; }
+    .mock-rail { border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center;
+      gap:12px; padding:14px 0; background:var(--surface-2); }
+    .mock-av { width:36px; height:36px; border-radius:11px; display:grid; place-items:center; color:#fff;
+      font-weight:700; font-size:13px; }
+    .mock-list { padding:6px 0; overflow:hidden; }
+    .mock-msg { display:flex; gap:11px; padding:12px 16px; border-bottom:1px solid rgba(38,43,54,.6); }
+    .mock-dot { width:34px; height:34px; border-radius:10px; flex-shrink:0; display:grid; place-items:center;
+      color:#fff; font-weight:700; font-size:12px; }
+    .mock-txt b { font-size:12.5px; display:block; }
+    .mock-txt span { font-size:11.5px; color:var(--muted); }
+
+    /* Sections */
+    section.block { padding:64px 0; }
+    .sec-title { font-size:30px; letter-spacing:-.02em; margin:0 0 8px; text-align:center; }
+    .sec-sub { color:var(--muted); text-align:center; margin:0 auto 44px; max-width:520px; font-size:15px; }
+    .features { display:grid; grid-template-columns:repeat(4,1fr); gap:18px; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px; }
+    .card .ficon { width:44px; height:44px; border-radius:12px; display:grid; place-items:center;
+      background:rgba(109,124,255,.12); color:var(--accent-2); margin-bottom:16px; }
+    .card .ficon svg { width:22px; height:22px; }
+    .card h3 { margin:0 0 7px; font-size:16px; }
+    .card p { margin:0; color:var(--muted); font-size:13.5px; }
+
+    /* Download */
+    .download { background:linear-gradient(135deg,rgba(109,124,255,.14),rgba(139,123,255,.06));
+      border:1px solid var(--line); border-radius:22px; padding:44px; display:flex; align-items:center;
+      justify-content:space-between; gap:32px; flex-wrap:wrap; }
+    .download-badge { display:flex; align-items:center; gap:18px; }
+    .download-badge img { width:72px; height:72px; border-radius:18px; }
+    .download h3 { margin:0 0 4px; font-size:22px; letter-spacing:-.01em; }
+    .download p { margin:0; color:var(--muted); font-size:14px; }
+    .ver { font-size:11.5px; color:var(--accent-2); font-weight:600; border:1px solid rgba(109,124,255,.3);
+      border-radius:999px; padding:3px 10px; display:inline-block; margin-top:8px; }
+
+    footer { border-top:1px solid var(--line); padding:28px 0; color:var(--muted-2); font-size:13px;
+      display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
+
+    @media (max-width:860px){
+      .hero-in{ grid-template-columns:1fr; gap:36px; padding:56px 0; }
+      h1{ font-size:40px; }
+      .features{ grid-template-columns:repeat(2,1fr); }
+      .nav .brand span.full{ display:none; }
+    }
+    @media (max-width:520px){
+      .features{ grid-template-columns:1fr; }
+      h1{ font-size:33px; }
+      .download{ padding:28px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" /><span>FluxoryBox</span></a>
+      <div class="nav-actions">
+        <a class="btn btn-ghost" href="/FluxoryBox-1.1-beta.apk" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M5 21h14"/></svg>
+          Baixar APK
+        </a>
+        <a class="btn btn-primary" href="/app.html">
+          Entrar no mail
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap hero-in">
+      <div>
+        <span class="eyebrow"><span class="dot"></span>Cliente de email da Fluxory</span>
+        <h1>Seus emails,<br><span class="grad">num lugar só.</span></h1>
+        <p class="lead">Junte Gmail, Outlook e outras contas numa caixa de entrada única — na web e no Android. Login direto pela conta, sem depender do app do Outlook ou do Gmail.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/app.html">Entrar no mail
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="/FluxoryBox-1.1-beta.apk" download>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M5 21h14"/></svg>
+            Baixar para Android
+          </a>
+        </div>
+        <p class="cta-note">Grátis · Android 5.0+ · versão 1.1 beta</p>
+      </div>
+
+      <div class="mock" aria-hidden="true">
+        <div class="mock-top"><i></i><i></i><i></i></div>
+        <div class="mock-body">
+          <div class="mock-rail">
+            <div class="mock-av" style="background:linear-gradient(135deg,#6d7cff,#8b7bff)">Ts</div>
+            <div class="mock-av" style="background:hsl(210 62% 52%)">P</div>
+            <div class="mock-av" style="background:hsl(4 62% 52%)">L</div>
+            <div class="mock-av" style="background:hsl(150 62% 40%)">M</div>
+          </div>
+          <div class="mock-list">
+            <div class="mock-msg"><span class="mock-dot" style="background:hsl(210 62% 52%)">G</span><div class="mock-txt"><b>Google</b><span>Alerta de segurança</span></div></div>
+            <div class="mock-msg"><span class="mock-dot" style="background:hsl(280 62% 52%)">T</span><div class="mock-txt"><b>Twitch</b><span>xandfps está ao vivo agora</span></div></div>
+            <div class="mock-msg"><span class="mock-dot" style="background:hsl(30 62% 50%)">M</span><div class="mock-txt"><b>Microsoft</b><span>Novo app conectado à sua conta</span></div></div>
+            <div class="mock-msg"><span class="mock-dot" style="background:hsl(120 45% 45%)">S</span><div class="mock-txt"><b>Serasa</b><span>Tem cartão te esperando</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="block wrap">
+    <h2 class="sec-title">Feito para quem tem várias contas</h2>
+    <p class="sec-sub">Uma interface só, do seu jeito — sem trocar de app o dia inteiro.</p>
+    <div class="features">
+      <div class="card">
+        <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h5l2 3h4l2-3h5"/><rect x="5" y="6" width="14" height="13" rx="2"/></svg></div>
+        <h3>Caixa unificada</h3>
+        <p>Todas as suas contas numa timeline única, ou filtre por conta com um toque.</p>
+      </div>
+      <div class="card">
+        <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 5-3.5 8-9 9-5.5-1-9-4-9-9V6l9-3 9 3z"/></svg></div>
+        <h3>Login direto</h3>
+        <p>Entre com a Microsoft ou o Google. Sem senha de app, sem burocracia.</p>
+      </div>
+      <div class="card">
+        <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 20h8"/><path d="M12 17v3"/></svg></div>
+        <h3>Web e Android</h3>
+        <p>A mesma conta no navegador e no celular. Adicionou na web, aparece no app.</p>
+      </div>
+      <div class="card">
+        <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+        <h3>Seus dados, seu servidor</h3>
+        <p>Roda na sua própria hospedagem. Suas credenciais ficam criptografadas com você.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block wrap">
+    <div class="download">
+      <div class="download-badge">
+        <img src="/logo.svg" alt="FluxoryBox" />
+        <div>
+          <h3>FluxoryBox para Android</h3>
+          <p>Baixe o APK e instale direto no seu celular.</p>
+          <span class="ver">v1.1 beta</span>
+        </div>
+      </div>
+      <a class="btn btn-primary" href="/FluxoryBox-1.1-beta.apk" download>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M5 21h14"/></svg>
+        Baixar APK
+      </a>
+    </div>
+  </section>
+
+  <footer class="wrap">
+    <span>© 2026 FluxoryBox · Fluxory</span>
+    <a href="/app.html">Entrar no mail →</a>
+  </footer>
+</body>
+</html>

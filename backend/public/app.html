@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FluxoryBox</title>
+  <link rel="icon" href="/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/favicon-180.png" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Tela de acesso -->
+  <div id="gate" class="gate hidden">
+    <div class="gate-card">
+      <div class="gate-mark" id="gateMark"></div>
+      <h1>FluxoryBox</h1>
+      <p>Entre com seu usuário e senha.</p>
+      <input id="userInput" type="text" placeholder="Usuário" autocomplete="username" />
+      <input id="passInput" type="password" placeholder="Senha" autocomplete="current-password" />
+      <button id="loginBtn" class="primary block">Entrar</button>
+      <small id="gateErr" class="err"></small>
+      <a href="/" class="gate-link">← Voltar ao início</a>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div id="app" class="app hidden">
+    <!-- Régua de contas -->
+    <nav class="rail">
+      <div class="rail-brand" id="brandMark" title="FluxoryBox"></div>
+      <div class="rail-scroll" id="rail"></div>
+      <div class="rail-bottom">
+        <button class="rail-btn" id="manageBtn" title="Gerenciar contas"></button>
+        <button class="rail-btn" id="logoutBtn" title="Sair"></button>
+      </div>
+    </nav>
+
+    <!-- Coluna central: cabeçalho + lista -->
+    <section class="mid">
+      <header class="mid-head">
+        <div class="ctx">
+          <div class="ctx-row">
+            <h2 id="ctxTitle">Todas as contas</h2>
+            <button class="folder-btn hidden" id="folderBtn">
+              <span id="folderName">Caixa de entrada</span>
+              <span class="fic" id="folderChev"></span>
+            </button>
+            <div class="folder-menu hidden" id="folderMenu"></div>
+          </div>
+          <span class="count" id="ctxCount"></span>
+        </div>
+        <div class="search" id="searchWrap">
+          <span class="search-ic" id="searchIc"></span>
+          <input id="search" type="text" placeholder="Buscar por assunto ou remetente" />
+        </div>
+        <button class="icon-btn" id="refreshBtn" title="Atualizar"></button>
+        <button class="primary" id="composeBtn"><span class="btn-ic" id="composeIc"></span>Escrever</button>
+      </header>
+      <div class="list" id="messageList"></div>
+    </section>
+
+    <!-- Leitor -->
+    <section class="reader" id="reader">
+      <div class="reader-empty" id="readerEmpty">Selecione uma mensagem para ler</div>
+    </section>
+  </div>
+
+  <!-- Modal: adicionar conta -->
+  <div id="accModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Adicionar conta</h2><button class="x" data-close="accModal"></button></div>
+      <div id="oauthButtons" class="oauth-buttons"></div>
+      <div id="oauthSep" class="sep hidden"><span>ou entre manualmente</span></div>
+      <label>Nome<input id="accName" placeholder="Seu nome" /></label>
+      <label>Email<input id="accEmail" placeholder="voce@exemplo.com" /></label>
+      <label>Senha de app<input id="accPass" type="password" placeholder="senha de aplicativo" /></label>
+      <small class="hint">Provedor detectado pelo domínio. Gmail e Outlook exigem senha de aplicativo.</small>
+      <div class="modal-actions">
+        <button id="accTest" class="ghost">Testar</button>
+        <button id="accSave" class="primary">Salvar</button>
+      </div>
+      <small id="accResult" class="result"></small>
+    </div>
+  </div>
+
+  <!-- Modal: gerenciar contas -->
+  <div id="manageModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Contas</h2><button class="x" data-close="manageModal"></button></div>
+      <ul id="manageList" class="manage-list"></ul>
+      <div class="modal-actions">
+        <button id="manageAdd" class="primary block">Adicionar conta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: escrever -->
+  <div id="composeModal" class="modal hidden">
+    <div class="modal-card wide">
+      <div class="modal-head"><h2>Nova mensagem</h2><button class="x" data-close="composeModal"></button></div>
+      <label>De<select id="cpFrom"></select></label>
+      <label>Para
+        <div class="to-row">
+          <input id="cpTo" placeholder="destino@exemplo.com" />
+          <button type="button" id="cpCcToggle" class="linkbtn">Cc/Cco</button>
+        </div>
+      </label>
+      <label id="cpCcWrap" class="hidden">Cc<input id="cpCc" placeholder="copia@exemplo.com" /></label>
+      <label id="cpBccWrap" class="hidden">Cco<input id="cpBcc" placeholder="copia-oculta@exemplo.com" /></label>
+      <label>Assunto<input id="cpSubject" placeholder="Assunto" /></label>
+      <div class="editor">
+        <div class="editor-toolbar" id="cpToolbar">
+          <button type="button" class="tb" data-cmd="bold" title="Negrito"><b>B</b></button>
+          <button type="button" class="tb" data-cmd="italic" title="Itálico"><i>I</i></button>
+          <button type="button" class="tb" data-cmd="underline" title="Sublinhado"><u>U</u></button>
+          <span class="tb-sep"></span>
+          <button type="button" class="tb" data-cmd="insertUnorderedList" title="Lista"></button>
+          <button type="button" class="tb" data-cmd="insertOrderedList" title="Lista numerada"></button>
+          <button type="button" class="tb" data-cmd="createLink" title="Link"></button>
+          <span class="tb-sep"></span>
+          <button type="button" class="tb" data-cmd="removeFormat" title="Limpar formatação"></button>
+        </div>
+        <div id="cpBody" class="editor-area" contenteditable="true" data-placeholder="Escreva sua mensagem..."></div>
+      </div>
+      <div class="attach-row">
+        <button type="button" id="cpAttachBtn" class="ghost small"><span id="cpAttachIc"></span>Anexar arquivo</button>
+        <input type="file" id="cpFile" multiple hidden />
+        <div id="cpAttachList" class="attach-chips"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="cpCancel" class="ghost" data-close="composeModal">Cancelar</button>
+        <button id="cpSend" class="primary"><span class="btn-ic" id="sendIc"></span>Enviar</button>
+      </div>
+      <small id="cpResult" class="result"></small>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

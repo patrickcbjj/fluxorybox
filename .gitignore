@@ -1,0 +1,49 @@
+# ===== Segredos / dados (NUNCA versionar) =====
+backend/.env
+**/.env
+!**/.env.example
+backend/data/
+*.db
+*.sqlite
+
+# ===== Node =====
+node_modules/
+npm-debug.log*
+
+# ===== APK / binários grandes =====
+# Publicados como assets nas Releases do GitHub, não no código.
+*.apk
+*.aab
+*.zip
+
+# ===== Flutter / Dart =====
+mobile/build/
+mobile/android/build/
+mobile/android/app/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.pub-cache/
+mobile/.pub/
+mobile/pubspec.lock
+
+# ===== Android =====
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/key.properties
+mobile/android/app/upload-keystore.jks
+mobile/android/**/GeneratedPluginRegistrant.*
+**/*.keystore
+**/*.jks
+
+# ===== iOS (não usado, por precaução) =====
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+
+# ===== Diversos =====
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+dist/
