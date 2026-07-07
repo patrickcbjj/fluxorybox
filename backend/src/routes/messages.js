@@ -81,7 +81,15 @@ export default async function messagesRoutes(app) {
   app.get('/api/accounts/:id/folders', async (req, reply) => {
     const account = getAccount(Number(req.params.id), { withSecret: true });
     if (!account) return reply.code(404).send({ error: 'conta não encontrada' });
-    return listFolders(account);
+    try {
+      const folders = await listFolders(account);
+      markHealthy(account.id);
+      return folders;
+    } catch (e) {
+      markUnhealthy(account.id, e);
+      const c = classifyError(e);
+      return reply.code(502).send({ error: c.message, code: c.code, needsReconnect: c.needsReconnect });
+    }
   });
 
   // Mensagens de uma pasta de uma conta.
