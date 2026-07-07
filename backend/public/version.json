@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "1.1.5",
-  "apkUrl": "/FluxoryBox-1.1.5-beta.apk",
-  "notes": "Agora dá para entrar com a Microsoft e com o Google direto no app (botões na tela de adicionar conta), sem precisar de senha de app. O login abre no navegador e o app detecta sozinho quando a conta conecta. Também vale para reconectar contas OAuth."
+  "versionCode": 9,
+  "versionName": "1.1.6",
+  "apkUrl": "/FluxoryBox-1.1.6-beta.apk",
+  "notes": "Correções no login: contas OAuth não desconectam mais sozinhas (o app guarda o token renovado); a Microsoft agora deixa escolher qual conta entrar (não reusa a última); e ao terminar o login o navegador volta direto para o app. Aviso de conta desconectada ficou menos sensível (não pisca por erro passageiro)."
 }

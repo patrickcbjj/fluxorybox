@@ -11,7 +11,11 @@ export function markHealthy(id) {
 
 export function markUnhealthy(id, err) {
   const c = classifyError(err);
-  map.set(id, { ok: false, at: Date.now(), ...c });
+  // Só marca a conta como DESCONECTADA quando é erro de autenticação (precisa reconectar).
+  // Erros transitórios (rede, "command failed", timeouts) não derrubam o status — evita
+  // que a conta pisque como "desconectada" à toa logo depois de adicionar.
+  if (c.needsReconnect) map.set(id, { ok: false, at: Date.now(), ...c });
+  return c;
 }
 
 export function getHealth(id) {

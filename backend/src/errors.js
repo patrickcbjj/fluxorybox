@@ -14,8 +14,9 @@ export function classifyError(err) {
   }
 
   // Autenticação recusada/expirada, token revogado ou conta bloqueada por abuso →
-  // a conta caiu e precisa ser reconectada.
-  if (/aadsts|abuse|invalid credentials|authenticationfailed|authentication failed|invalid login|invalid_grant|interaction_required|username and password not accepted|login failed|auth(entication)?\s*(failed|denied|error)|application-specific password|app password|not authenticated|unauthorized|\b535\b|\b534\b|command failed|token.*(expired|invalid|revoked)|expired.*token|access.?denied/.test(s)) {
+  // a conta caiu e precisa ser reconectada. (NÃO incluir erros genéricos tipo "command
+  // failed" ou "NO"/"BAD" avulsos — são transitórios e não significam conta desconectada.)
+  if (/aadsts|abuse|invalid credentials|authenticationfailed|authentication failed|invalid login|invalid_grant|interaction_required|username and password not accepted|login failed|auth(entication)?\s*(failed|denied|error)|application-specific password|app password|not authenticated|unauthorized|\b535\b|\b534\b|token.*(expired|invalid|revoked)|expired.*token|reautorize|sem refresh token|access.?denied/.test(s)) {
     return {
       code: 'AUTH',
       needsReconnect: true,

@@ -153,6 +153,16 @@ export function deleteAccount(id) {
   return info.changes > 0;
 }
 
+// Atualiza o refresh_token de uma conta OAuth (Microsoft/Google rotacionam o refresh
+// token a cada renovação; se não guardar o novo, o antigo eventualmente morre e a conta
+// "desconecta sozinha"). Grava por email.
+export function updateRefreshToken(email, refreshToken) {
+  if (!email || !refreshToken) return false;
+  const info = db.prepare('UPDATE accounts SET refresh_token_enc=? WHERE email=?')
+    .run(encrypt(refreshToken), email);
+  return info.changes > 0;
+}
+
 // Semeia contas a partir de SEED_ACCOUNTS (JSON) — sobrevive a redeploys na Discloud.
 export function seedFromEnv() {
   if (!config.seedAccounts) return 0;

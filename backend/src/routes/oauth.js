@@ -7,24 +7,35 @@ import { clearHealth } from '../health.js';
 
 // Guarda os "state" pendentes (protege contra CSRF e amarra provider). Expira em 10 min.
 const states = new Map();
-function newState(provider) {
+function newState(provider, fromApp) {
   const s = crypto.randomBytes(16).toString('hex');
-  states.set(s, { provider, at: Date.now() });
+  states.set(s, { provider, fromApp: !!fromApp, at: Date.now() });
   // Limpeza preguiçosa.
   for (const [k, v] of states) if (Date.now() - v.at > 600000) states.delete(k);
   return s;
 }
 
-function page(title, msg) {
+// `fromApp`: quando o login foi iniciado pelo APK, a página volta pro app via deep link
+// (fluxorybox://auth-done); no navegador comum, apenas fecha a aba/popup.
+function page(title, msg, fromApp = false) {
+  const appLink = 'fluxorybox://auth-done';
+  const action = fromApp
+    ? `<p><a class="btn" href="${appLink}">Voltar ao app FluxoryBox</a></p>`
+    : `<p><a href="/">← Voltar ao FluxoryBox</a></p>`;
+  const script = fromApp
+    ? `setTimeout(function(){try{window.location.href='${appLink}'}catch(e){}},700)`
+    : `setTimeout(function(){try{window.close()}catch(e){}},2500)`;
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1115;color:#e6e8ee;
   display:grid;place-items:center;height:100vh;margin:0;text-align:center}
   .c{background:#171a21;padding:32px;border-radius:14px;border:1px solid #272c37;max-width:340px}
-  a{color:#4f7cff}</style></head>
+  a{color:#4f7cff}
+  .btn{display:inline-block;margin-top:8px;padding:11px 18px;background:#4f7cff;color:#fff;
+  border-radius:10px;text-decoration:none;font-weight:600}</style></head>
   <body><div class="c"><h2>${title}</h2><p>${msg}</p>
-  <p><a href="/">← Voltar ao FluxoryBox</a></p></div>
-  <script>try{setTimeout(function(){window.close()},2500)}catch(e){}</script></body></html>`;
+  ${action}</div>
+  <script>try{${script}}catch(e){}</script></body></html>`;
 }
 
 export default async function oauthRoutes(app) {
@@ -37,15 +48,16 @@ export default async function oauthRoutes(app) {
   // Início do fluxo: valida o token via query (navegação top-level não manda header).
   app.get('/api/oauth/:provider/start', async (req, reply) => {
     const { provider } = req.params;
+    const fromApp = req.query.app === '1';
     if (!OAUTH[provider]) return reply.code(404).send({ error: 'provedor inválido' });
     if (config.appUser && !verifySession(req.query.token)) {
-      return reply.code(401).type('text/html').send(page('Não autorizado', 'Sessão inválida. Faça login novamente.'));
+      return reply.code(401).type('text/html').send(page('Não autorizado', 'Sessão inválida. Faça login novamente.', fromApp));
     }
     if (!isConfigured(provider)) {
       return reply.type('text/html').send(page('OAuth não configurado',
-        `Faltam as credenciais do ${OAUTH[provider].name} no servidor (.env).`));
+        `Faltam as credenciais do ${OAUTH[provider].name} no servidor (.env).`, fromApp));
     }
-    const state = newState(provider);
+    const state = newState(provider, fromApp);
     return reply.redirect(buildAuthUrl(provider, state));
   });
 
@@ -53,10 +65,11 @@ export default async function oauthRoutes(app) {
   app.get('/api/oauth/:provider/callback', async (req, reply) => {
     const { provider } = req.params;
     const { code, state, error, error_description } = req.query;
-    if (error) return reply.type('text/html').send(page('Autorização negada', error_description || error));
     const entry = states.get(state);
+    const fromApp = !!entry?.fromApp;
+    if (error) return reply.type('text/html').send(page('Autorização negada', error_description || error, fromApp));
     if (!entry || entry.provider !== provider) {
-      return reply.type('text/html').send(page('Sessão expirada', 'Tente adicionar a conta novamente.'));
+      return reply.type('text/html').send(page('Sessão expirada', 'Tente adicionar a conta novamente.', fromApp));
     }
     states.delete(state);
     try {
@@ -83,10 +96,10 @@ export default async function oauthRoutes(app) {
       });
       if (saved?.id != null) clearHealth(saved.id); // reconectou → zera status
       const email = profile.email;
-      return reply.type('text/html').send(page('Conta adicionada! ✅',
-        `${email} conectada via ${p.name}. Você já pode fechar esta janela.`));
+      return reply.type('text/html').send(page('Conta adicionada!',
+        `${email} conectada via ${p.name}.`, fromApp));
     } catch (e) {
-      return reply.type('text/html').send(page('Falha ao conectar', e.message));
+      return reply.type('text/html').send(page('Falha ao conectar', e.message, fromApp));
     }
   });
 }

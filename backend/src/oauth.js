@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { updateRefreshToken } from './db.js';
 
 // Configuração OAuth2 por provedor (login direto "Entrar com ...").
 export const OAUTH = {
@@ -21,7 +22,9 @@ export const OAUTH = {
     ].join(' '),
     imap: { host: 'outlook.office365.com', port: 993, secure: true },
     smtp: { host: 'smtp-mail.outlook.com', port: 587, secure: false },
-    extraAuthParams: {},
+    // prompt=select_account: sempre mostra o seletor de conta (senão o navegador reusa
+    // silenciosamente a última conta Microsoft logada e não dá pra escolher outra).
+    extraAuthParams: { prompt: 'select_account' },
     creds: () => config.ms,
   },
   google: {
@@ -31,8 +34,9 @@ export const OAUTH = {
     scopes: ['openid', 'email', 'profile', 'https://mail.google.com/'].join(' '),
     imap: { host: 'imap.gmail.com', port: 993, secure: true },
     smtp: { host: 'smtp.gmail.com', port: 465, secure: true },
-    // access_type=offline + prompt=consent p/ garantir refresh_token.
-    extraAuthParams: { access_type: 'offline', prompt: 'consent' },
+    // access_type=offline garante refresh_token; select_account+consent deixa escolher a
+    // conta (senão reusa a última) e ainda devolve o refresh_token.
+    extraAuthParams: { access_type: 'offline', prompt: 'select_account consent' },
     creds: () => config.google,
   },
 };
@@ -152,6 +156,12 @@ export async function accessTokenFor(account) {
 
   const data = await refreshAccessToken(account.provider, account.refreshToken);
   if (!data.access_token) throw new Error('Falha ao renovar access token.');
+  // Se o provedor devolveu um refresh_token novo (rotação), persiste — senão o antigo
+  // pode ser invalidado e a conta desconecta sozinha depois.
+  if (data.refresh_token && data.refresh_token !== account.refreshToken) {
+    try { updateRefreshToken(account.email, data.refresh_token); account.refreshToken = data.refresh_token; }
+    catch (_) {/* não bloqueia a operação atual */}
+  }
   const exp = Date.now() + (Number(data.expires_in) || 3600) * 1000;
   accessTokenCache.set(key, { token: data.access_token, exp });
   return data.access_token;
