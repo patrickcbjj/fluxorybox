@@ -235,6 +235,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   int _unifiedLimit = 40;
   bool _loading = true;
   bool _loadingMore = false;
+  bool _refreshing = false;
   String? _error;
   bool _needsReconnect = false;
 
@@ -406,8 +407,10 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   // Refresh silencioso pro polling (não mostra spinner).
-  Future<void> _refreshSilent() async {
+  // Atualização suave: mantém os emails na tela; com `visible` mostra só a barra fina no topo.
+  Future<void> _refreshSilent({bool visible = false}) async {
     if (_searching || !mounted) return;
+    if (visible) setState(() => _refreshing = true);
     // Atualiza o estado de conexão das contas (aviso de desconectada) sem spinner.
     try { _accounts = await Api.accounts(); } catch (_) {}
     try {
@@ -419,8 +422,8 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         final data = await Api.accountMessages(_view as int, folder: _folder, limit: span, offset: 0);
         _messages = data['messages'] ?? [];
       }
-      if (mounted) setState(() {});
     } catch (_) {}
+    if (mounted) setState(() => _refreshing = false);
   }
 
   Future<void> _runSearch() async {
@@ -479,6 +482,12 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 12,
+        bottom: _refreshing
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(2),
+                child: SizedBox(height: 2, child: LinearProgressIndicator(minHeight: 2, backgroundColor: Colors.transparent)),
+              )
+            : null,
         title: _searchOpen
             ? TextField(
                 controller: _searchCtrl,
@@ -512,7 +521,12 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
             },
           ),
           if (!_searchOpen) ...[
-            IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: () => _load(reset: true)),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: () {
+                if (_searching) { _runSearch(); } else { _refreshSilent(visible: true); }
+              },
+            ),
             IconButton(
               icon: const Icon(Icons.manage_accounts_rounded),
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
@@ -699,7 +713,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   Widget _listArea() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const _SkeletonList();
     if (_error != null) {
       return _ErrorView(
         error: _error!,
@@ -715,7 +729,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     }
     final showLoadMore = !_searching;
     return RefreshIndicator(
-      onRefresh: () => _load(reset: true),
+      onRefresh: () => _refreshSilent(),
       child: ListView.separated(
         itemCount: _messages.length + (showLoadMore ? 1 : 0),
         separatorBuilder: (_, __) => const Divider(height: 1, color: line),
@@ -1490,6 +1504,55 @@ class _GooglePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Placeholders animados (shimmer) enquanto carrega uma caixa pela 1ª vez.
+class _SkeletonList extends StatefulWidget {
+  const _SkeletonList();
+  @override
+  State<_SkeletonList> createState() => _SkeletonListState();
+}
+
+class _SkeletonListState extends State<_SkeletonList> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat(reverse: true);
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: 10,
+      separatorBuilder: (_, __) => const SizedBox(height: 2),
+      itemBuilder: (_, __) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) {
+          final o = 0.35 + _c.value * 0.35;
+          Widget bar(double w, double h) => Container(
+                width: w, height: h,
+                decoration: BoxDecoration(
+                  color: surface2.withValues(alpha: o),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              );
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(width: 42, height: 42,
+                  decoration: BoxDecoration(color: surface2.withValues(alpha: o), borderRadius: BorderRadius.circular(12))),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                bar(120, 11), const SizedBox(height: 9), bar(double.infinity, 11),
+              ])),
+            ]),
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _ErrorView extends StatelessWidget {

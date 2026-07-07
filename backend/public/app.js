@@ -111,6 +111,11 @@ function initials(name, email) {
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || base[0].toUpperCase();
 }
 function accountById(id) { return accounts.find((a) => a.id === id); }
+// Estado vazio do leitor (com ícone), reaproveitado em vários lugares.
+function readerEmptyHtml(title = 'Nenhuma mensagem aberta', sub = 'Escolha um email na lista para ler aqui.') {
+  return `<div class="reader-empty"><div class="re-ic">${ICONS.mark}</div>
+    <p>${esc(title)}</p>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+}
 
 // Avatar (foto ou iniciais). size opcional via classe.
 function avatarHtml(acc, cls = 'msg-avatar') {
@@ -190,7 +195,7 @@ function selectView(v) {
   el('ctxTitle').textContent = acc ? (acc.displayName || acc.email) : 'Todas as contas';
   document.documentElement.style.setProperty('--pill', acc ? accColor(acc.email) : 'var(--accent)');
   el('reader').classList.remove('open');
-  el('reader').innerHTML = `<div class="reader-empty">Selecione uma mensagem para ler</div>`;
+  el('reader').innerHTML = readerEmptyHtml();
   el('folderBtn').classList.toggle('hidden', !acc);
   el('folderMenu').classList.add('hidden');
   el('folderName').textContent = 'Caixa de entrada';
@@ -228,8 +233,23 @@ async function loadAccounts() {
 }
 
 // ---------- Lista de mensagens ----------
+// Barra de progresso fina no topo da lista (não apaga os emails ao atualizar).
+function setLoading(on) { document.body.classList.toggle('loading', on); }
+// Placeholders animados só no 1º carregamento de uma caixa.
+function skeletonRows(n = 9) {
+  let s = '';
+  for (let i = 0; i < n; i++) s += `<div class="msg skel"><div class="sk-av"></div>
+    <div class="sk-body"><div class="sk-line w40"></div><div class="sk-line w80"></div></div></div>`;
+  return s;
+}
+// Assinatura da lista renderizada: evita re-render (e o "pisca") quando nada mudou.
+function listSig(msgs) { return msgs.map((m) => `${m.accountId}:${m.uid}:${m.seen ? 1 : 0}:${m.flagged ? 1 : 0}`).join('|'); }
+let lastSig = '';
+
 async function loadList(reset = true) {
-  if (reset) { offset = 0; el('messageList').innerHTML = `<div class="loader"><div class="spinner"></div></div>`; }
+  // reset = troca de caixa/pasta → skeleton (limpa o contexto anterior).
+  if (reset) { offset = 0; el('messageList').innerHTML = skeletonRows(); lastSig = ''; }
+  setLoading(true);
   try {
     if (view === 'unified') {
       const data = await api(`/api/inbox?limit=${unifiedLimit}`);
@@ -240,7 +260,7 @@ async function loadList(reset = true) {
       currentMessages = (reset || offset === 0) ? page : currentMessages.concat(page);
     }
     markKnown(currentMessages); // baseline: não notifica o que já estava lá
-    renderList(currentFiltered());
+    renderList(currentFiltered(), { animate: reset });
   } catch (e) {
     const acc = typeof view === 'number' ? accountById(view) : null;
     let html = `<div class="empty err">${esc(e.message)}`;
@@ -248,6 +268,8 @@ async function loadList(reset = true) {
     html += `</div>`;
     el('messageList').innerHTML = html;
     const rb = el('reconnBtn'); if (rb) rb.onclick = () => reconnectAccount(acc);
+  } finally {
+    setLoading(false);
   }
 }
 async function loadMore(btn) {
@@ -255,9 +277,12 @@ async function loadMore(btn) {
   if (view === 'unified') { unifiedLimit += 40; } else { offset += PAGE; }
   await loadList(false);
 }
-function renderList(msgs) {
+function renderList(msgs, opts = {}) {
+  lastSig = listSig(msgs);
   el('ctxCount').textContent = msgs.length ? `${msgs.length} mensagens` : '';
-  if (!msgs.length) { el('messageList').innerHTML = `<div class="empty">Nenhuma mensagem por aqui.</div>`; return; }
+  const listEl = el('messageList');
+  listEl.classList.toggle('fade-in', !!opts.animate);
+  if (!msgs.length) { listEl.innerHTML = `<div class="empty">Nenhuma mensagem por aqui.</div>`; return; }
   const rows = msgs.map((m, i) => {
     const f = m.from[0] || {}; const from = f.name || f.address || '(desconhecido)';
     const showTag = view === 'unified';
@@ -427,7 +452,7 @@ function replyAllCc(full, m) {
 async function moveMsg(m, target) {
   try {
     await api(`/api/accounts/${m.accountId}/messages/${m.uid}/move?folder=${encodeURIComponent(m.folder)}`, { method: 'POST', body: JSON.stringify({ target }) });
-    el('reader').innerHTML = `<div class="reader-empty">Mensagem movida.</div>`;
+    el('reader').innerHTML = readerEmptyHtml('Mensagem movida', 'Escolha outro email na lista.');
     el('reader').classList.remove('open'); loadList();
   } catch (e) { alert('Falha ao mover: ' + e.message); }
 }
@@ -484,7 +509,12 @@ function clearServerSearch() {
   el('search').value = '';
   loadList(true);
 }
-el('refreshBtn').onclick = () => { serverSearching = false; loadList(true); };
+// Atualizar = refresh suave (mantém os emails, mostra só a barra fina). Se estava em
+// resultados de busca, volta pra caixa normal com skeleton.
+el('refreshBtn').onclick = () => {
+  if (serverSearching) { serverSearching = false; loadList(true); }
+  else refreshSilent({ visible: true });
+};
 
 // ---------- Notificações (Web Notifications API) ----------
 let knownIds = null; // Set de "accountId:uid" já conhecidos (null até o 1º carregamento)
@@ -515,12 +545,15 @@ function notifyNew(msgs) {
 // ---------- Tempo real (polling + foco) ----------
 let pollTimer = null;
 function startPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(refreshSilent, 30000); }
-async function refreshSilent() {
+// Atualização suave: mantém os emails na tela, mostra só a barra fina e só re-renderiza
+// se algo mudou de fato (sem "pisca").
+async function refreshSilent(opts = {}) {
   if (!el('gate').classList.contains('hidden')) return; // só quando logado (roda mesmo com aba em 2º plano)
   // Atualiza o estado de conexão das contas (aviso de desconectada) sem barulho.
   try { const fresh = await api('/api/accounts'); if (Array.isArray(fresh)) { accounts = fresh; renderRail(); } } catch (_) {}
   const listEl = el('messageList');
   const scroll = listEl.scrollTop;
+  if (opts.visible) setLoading(true);
   try {
     if (view === 'unified') {
       const data = await api(`/api/inbox?limit=${unifiedLimit}`);
@@ -532,8 +565,13 @@ async function refreshSilent() {
     }
     notifyNew(currentMessages);  // avisa antes de atualizar a baseline
     markKnown(currentMessages);
-    if (!serverSearching) { renderList(currentFiltered()); listEl.scrollTop = scroll; }
-  } catch (_) { /* silencioso */ }
+    if (!serverSearching) {
+      const filtered = currentFiltered();
+      if (listSig(filtered) !== lastSig) { renderList(filtered); listEl.scrollTop = scroll; }
+    }
+  } catch (_) { /* silencioso */ } finally {
+    if (opts.visible) setLoading(false);
+  }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSilent(); });
 

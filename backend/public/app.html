@@ -56,12 +56,13 @@
         <button class="icon-btn" id="refreshBtn" title="Atualizar"></button>
         <button class="primary" id="composeBtn"><span class="btn-ic" id="composeIc"></span>Escrever</button>
       </header>
+      <div class="loadbar" id="loadbar" aria-hidden="true"></div>
       <div class="list" id="messageList"></div>
     </section>
 
     <!-- Leitor -->
     <section class="reader" id="reader">
-      <div class="reader-empty" id="readerEmpty">Selecione uma mensagem para ler</div>
+      <div class="reader-empty" id="readerEmpty"><div class="re-ic"></div><p>Nenhuma mensagem aberta</p><small>Escolha um email na lista para ler aqui.</small></div>
     </section>
   </div>
 

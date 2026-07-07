@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "1.1.6",
-  "apkUrl": "/FluxoryBox-1.1.6-beta.apk",
-  "notes": "Correções no login: contas OAuth não desconectam mais sozinhas (o app guarda o token renovado); a Microsoft agora deixa escolher qual conta entrar (não reusa a última); e ao terminar o login o navegador volta direto para o app. Aviso de conta desconectada ficou menos sensível (não pisca por erro passageiro)."
+  "versionCode": 10,
+  "versionName": "1.1.7",
+  "apkUrl": "/FluxoryBox-1.1.7-beta.apk",
+  "notes": "Visual mais suave: ao atualizar a caixa, os emails continuam na tela com uma barrinha fina de progresso (não somem mais). Primeiro carregamento mostra placeholders animados no lugar da roda de load, e a lista ganhou um acabamento mais refinado."
 }

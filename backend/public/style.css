@@ -162,11 +162,26 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .search input { padding-left: 36px; background: var(--surface); }
 .search-ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 16px; }
 
+/* Barra de progresso fina (refresh suave, estilo Outlook) */
+.loadbar { height: 2px; position: relative; overflow: hidden; background: transparent; flex: 0 0 auto; }
+body.loading .loadbar::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 35%;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+  animation: loadslide 1.05s cubic-bezier(.4,0,.2,1) infinite;
+}
+@keyframes loadslide { 0% { left: -35%; } 100% { left: 100%; } }
+
 /* Lista */
-.list { flex: 1; overflow-y: auto; min-height: 0; }
-.msg { display: flex; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+.list { flex: 1; overflow-y: auto; min-height: 0; padding: 6px 8px; }
+.msg { display: flex; gap: 12px; padding: 11px 12px; border-radius: 12px; cursor: pointer;
+  position: relative; transition: background .13s ease; }
+.msg + .msg { margin-top: 1px; }
+.msg::after { content: ""; position: absolute; left: 62px; right: 12px; bottom: -1px; height: 1px; background: var(--line-soft); }
+.msg:last-of-type::after, .msg:hover::after, .msg.active::after { opacity: 0; }
 .msg:hover { background: var(--surface); }
-.msg.active { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--pill, var(--accent)); }
+.msg.active { background: var(--surface-2); }
+.msg.active::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px;
+  border-radius: 3px; background: var(--pill, var(--accent)); }
 .msg-avatar { flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
   color: #fff; font-weight: 700; font-size: 14px; overflow: hidden; }
 .msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -184,11 +199,35 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .msg-acc .tag { width: 7px; height: 7px; border-radius: 50%; }
 
 /* Estados vazios / erro / carregando */
-.empty, .reader-empty { color: var(--muted); padding: 48px 24px; text-align: center; font-size: 13px; }
+.empty { color: var(--muted); padding: 48px 24px; text-align: center; font-size: 13px; }
+.reader-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; color: var(--muted); text-align: center; padding: 24px; }
+.reader-empty .re-ic { width: 60px; height: 60px; border-radius: 20px; display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--line); color: var(--muted-2); }
+.reader-empty .re-ic svg { width: 28px; height: 28px; }
+.reader-empty p { margin: 0; font-size: 14px; }
+.reader-empty small { color: var(--muted-2); font-size: 12.5px; }
 .loader { display: flex; justify-content: center; padding: 40px; }
 .spinner { width: 26px; height: 26px; border: 3px solid var(--line); border-top-color: var(--accent);
   border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Skeleton (só no primeiro carregamento de uma caixa) */
+.msg.skel { cursor: default; pointer-events: none; }
+.msg.skel::after { display: none; }
+.sk-av { width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0; }
+.sk-body { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 3px 0; }
+.sk-line { height: 10px; border-radius: 6px; }
+.sk-line.w40 { width: 40%; } .sk-line.w80 { width: 78%; }
+.sk-av, .sk-line {
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%);
+  background-size: 200% 100%; animation: shimmer 1.3s ease-in-out infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Entrada suave de novas linhas ao trocar de caixa */
+.list.fade-in .msg:not(.skel) { animation: rowin .22s ease both; }
+@keyframes rowin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* Leitor */
 .reader { overflow-y: auto; min-width: 0; }
