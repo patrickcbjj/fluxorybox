@@ -58,7 +58,12 @@ class Api {
   }
 
   static Future<dynamic> _delete(String path) async {
-    final res = await http.delete(Uri.parse('$baseUrl$path'), headers: _headers);
+    // DELETE sem corpo NÃO pode mandar Content-Type: application/json — o Fastify
+    // responde 400 ("Body cannot be empty..."). Só o header de auth aqui.
+    final res = await http.delete(
+      Uri.parse('$baseUrl$path'),
+      headers: {if (token.isNotEmpty) 'Authorization': 'Bearer $token'},
+    );
     return _handle(res);
   }
 

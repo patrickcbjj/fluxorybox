@@ -65,7 +65,7 @@ async function getAccessToken() {
 }
 
 // Envia uma notificação pra uma lista de tokens. Remove tokens inválidos do banco.
-export async function sendPush(tokens, { title, body, data = {} }) {
+export async function sendPush(tokens, { title, body, data = {}, tag, group } = {}) {
   if (!pushEnabled || !tokens?.length) return { sent: 0, removed: 0 };
   let accessToken;
   try { accessToken = await getAccessToken(); }
@@ -87,7 +87,14 @@ export async function sendPush(tokens, { title, body, data = {} }) {
             token,
             notification: { title, body },
             data: dataStr,
-            android: { priority: 'high', notification: { channel_id: 'novos_emails' } },
+            android: {
+              priority: 'high',
+              notification: {
+                channel_id: 'novos_emails',
+                // tag: cada email é uma notificação própria (não sobrescreve outra conta).
+                ...(tag ? { tag } : {}),
+              },
+            },
           },
         }),
       });

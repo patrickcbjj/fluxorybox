@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.2.0",
-  "apkUrl": "/FluxoryBox-1.2.0-beta.apk",
-  "notes": "Notificações: o app pede permissão e mostra notificação de email novo na barra do Android (push via FCM). A web também pede permissão e avisa de emails novos com a aba aberta."
+  "versionCode": 6,
+  "versionName": "1.2.1",
+  "apkUrl": "/FluxoryBox-1.2.1-beta.apk",
+  "notes": "Correções: remover conta no Android voltou a funcionar; as notificações agora mostram qual email recebeu a mensagem (não ficam mais misturadas na barra do Android)."
 }

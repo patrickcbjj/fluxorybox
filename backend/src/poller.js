@@ -48,9 +48,12 @@ async function tick() {
         failStreak.set(a.id, 0); // sucesso zera o streak
         for (const m of novos.slice(-5)) {
           await sendPush(tokens, {
-            title: senderName(m),
+            // Mostra QUAL conta recebeu (senão a bandeja fica misturada entre contas).
+            title: `${senderName(m)} — ${full.email}`,
             body: m.subject || '(sem assunto)',
-            data: { accountId: String(m.accountId), uid: String(m.uid), folder: 'INBOX' },
+            // tag única por email pra o Android não colapsar/sobrescrever contas diferentes.
+            tag: `acct-${full.id}-${m.uid}`,
+            data: { accountId: String(m.accountId), accountEmail: full.email, uid: String(m.uid), folder: 'INBOX' },
           });
         }
       } catch (e) {
