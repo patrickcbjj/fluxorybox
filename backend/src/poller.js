@@ -7,6 +7,7 @@
 import { listAccounts, getAccount, listPushTokens } from './db.js';
 import { listMessages } from './imap.js';
 import { sendPush, pushEnabled } from './push.js';
+import { markHealthy, markUnhealthy } from './health.js';
 
 const INTERVAL_MS = 180000;      // 3 min entre ciclos
 const MAX_BACKOFF = 10;          // pula no máx 10 ciclos (~30 min) uma conta problemática
@@ -46,6 +47,7 @@ async function tick() {
         const full = getAccount(a.id, { withSecret: true });
         const novos = await checkAccount(full);
         failStreak.set(a.id, 0); // sucesso zera o streak
+        markHealthy(a.id);       // conexão ok → conta saudável
         for (const m of novos.slice(-5)) {
           await sendPush(tokens, {
             // Mostra QUAL conta recebeu (senão a bandeja fica misturada entre contas).
@@ -57,7 +59,8 @@ async function tick() {
           });
         }
       } catch (e) {
-        // Falhou: aumenta o streak e agenda backoff exponencial (2,4,8,... até MAX).
+        // Falhou: marca a conta como desconectada e agenda backoff exponencial.
+        markUnhealthy(a.id, e);
         const streak = (failStreak.get(a.id) || 0) + 1;
         failStreak.set(a.id, streak);
         skipCycles.set(a.id, Math.min(MAX_BACKOFF, 2 ** Math.min(streak, 4)));

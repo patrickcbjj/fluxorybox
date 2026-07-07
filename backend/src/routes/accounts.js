@@ -2,13 +2,24 @@ import { listAccounts, getAccount, upsertAccount, deleteAccount } from '../db.js
 import { listProviders, detectProvider } from '../providers.js';
 import { testAccount } from '../imap.js';
 import { verifySmtp } from '../smtp.js';
+import { getHealth, clearHealth } from '../health.js';
 
 export default async function accountsRoutes(app) {
   // Provedores suportados (p/ o frontend montar o form).
   app.get('/api/providers', async () => listProviders());
 
-  // Lista contas (sem senha).
-  app.get('/api/accounts', async () => listAccounts());
+  // Lista contas (sem senha), anotando o estado de conexão (desconectada?).
+  app.get('/api/accounts', async () => listAccounts().map((a) => {
+    const h = getHealth(a.id);
+    const down = h ? !h.ok : false;
+    return {
+      ...a,
+      disconnected: down,
+      statusCode: down ? h.code : null,
+      statusMessage: down ? h.message : null,
+      needsReconnect: down ? !!h.needsReconnect : false,
+    };
+  }));
 
   // Adiciona/atualiza conta. Body: { email, password, displayName?, imap?, smtp? }
   app.post('/api/accounts', async (req, reply) => {
@@ -18,6 +29,7 @@ export default async function accountsRoutes(app) {
     }
     try {
       const account = upsertAccount(req.body);
+      clearHealth(account.id); // conta (re)adicionada → zera status de desconectada
       return account;
     } catch (e) {
       return reply.code(400).send({ error: e.message });
@@ -51,8 +63,10 @@ export default async function accountsRoutes(app) {
 
   // Remove conta.
   app.delete('/api/accounts/:id', async (req, reply) => {
-    const ok = deleteAccount(Number(req.params.id));
+    const id = Number(req.params.id);
+    const ok = deleteAccount(id);
     if (!ok) return reply.code(404).send({ error: 'conta não encontrada' });
+    clearHealth(id);
     return { ok: true };
   });
 

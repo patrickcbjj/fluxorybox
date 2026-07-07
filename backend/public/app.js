@@ -42,6 +42,7 @@ const ICONS = {
   listOl: S('<path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 4v3.5M3 4h1.2M3 8h2M3 12.5h2l-2 3h2"/>'),
   link: S('<path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/>'),
   eraser: S('<path d="M4 4h16M6 8l4 12M14 8l-4 12M9 8h6"/>'),
+  alert: S('<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'),
 };
 const BRAND = {
   microsoft: '<svg viewBox="0 0 23 23"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>',
@@ -84,8 +85,13 @@ async function api(path, opts = {}) {
   const headers = { ...(TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}), ...(opts.headers || {}) };
   if (opts.body) headers['Content-Type'] = 'application/json'; // sem corpo, não manda (evita 400 no DELETE)
   const res = await fetch(API + path, { ...opts, headers });
-  if (res.status === 401) { showGate('Token inválido.'); throw new Error('401'); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.statusText); }
+  if (res.status === 401) { showGate('Sua sessão expirou. Entre novamente.'); throw new Error('401'); }
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    const err = new Error(e.error || 'Não foi possível completar a ação. Tente de novo.');
+    err.code = e.code; err.needsReconnect = !!e.needsReconnect;
+    throw err;
+  }
   return res.status === 204 ? null : res.json();
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -161,8 +167,9 @@ function renderRail() {
     <span class="avatar all">${ICONS.inbox}</span></div>`;
   for (const a of accounts) {
     const active = view === a.id ? 'active' : '';
-    html += `<div class="rail-item ${active}" data-id="${a.id}" style="--pill:${accColor(a.email)}">
-      ${avatarHtml(a, 'avatar')}</div>`;
+    const warn = a.disconnected ? `<span class="rail-warn" title="Conta desconectada">!</span>` : '';
+    html += `<div class="rail-item ${active} ${a.disconnected ? 'disc' : ''}" data-id="${a.id}" style="--pill:${accColor(a.email)}">
+      ${avatarHtml(a, 'avatar')}${warn}</div>`;
   }
   html += `<div class="rail-item" id="railAdd"><span class="avatar add">${ICONS.plus}</span></div>`;
   rail.innerHTML = html;
@@ -235,7 +242,12 @@ async function loadList(reset = true) {
     markKnown(currentMessages); // baseline: não notifica o que já estava lá
     renderList(currentFiltered());
   } catch (e) {
-    el('messageList').innerHTML = `<div class="empty err">${esc(e.message)}</div>`;
+    const acc = typeof view === 'number' ? accountById(view) : null;
+    let html = `<div class="empty err">${esc(e.message)}`;
+    if (e.needsReconnect && acc) html += `<div style="margin-top:14px"><button class="primary" id="reconnBtn">Reconectar ${esc(acc.email)}</button></div>`;
+    html += `</div>`;
+    el('messageList').innerHTML = html;
+    const rb = el('reconnBtn'); if (rb) rb.onclick = () => reconnectAccount(acc);
   }
 }
 async function loadMore(btn) {
@@ -263,6 +275,40 @@ function renderList(msgs) {
   el('messageList').innerHTML = rows + `<div class="load-more"><button id="loadMoreBtn">Carregar mais</button></div>`;
   el('messageList').querySelectorAll('.msg').forEach((n) => n.onclick = () => openMessage(msgs[Number(n.dataset.i)]));
   const lm = el('loadMoreBtn'); if (lm) lm.onclick = () => loadMore(lm);
+  renderReconnectBanner();
+}
+
+// ---------- Contas desconectadas / reconexão ----------
+function disconnectedAccounts() {
+  if (typeof view === 'number') { const a = accountById(view); return a && a.disconnected ? [a] : []; }
+  return accounts.filter((a) => a.disconnected);
+}
+function renderReconnectBanner() {
+  const old = el('reconnectBanner'); if (old) old.remove();
+  const list = disconnectedAccounts();
+  if (!list.length) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'reconnectBanner'; wrap.className = 'reconnect-banner';
+  wrap.innerHTML = list.map((a, i) => `
+    <div class="rb-row">
+      <span class="rb-ic">${ICONS.alert}</span>
+      <div class="rb-text"><b>${esc(a.displayName || a.email)}</b> foi desconectada. ${esc(a.statusMessage || 'Reconecte para voltar a receber os emails.')}</div>
+      <button class="rb-btn" data-i="${i}">Reconectar</button>
+    </div>`).join('');
+  el('messageList').prepend(wrap);
+  wrap.querySelectorAll('.rb-btn').forEach((b) => b.onclick = () => reconnectAccount(list[Number(b.dataset.i)]));
+}
+function reconnectAccount(acc) {
+  if (!acc) return;
+  if (acc.authType === 'oauth' && acc.provider) {
+    startOAuth(acc.provider); // reabre o fluxo Microsoft/Google
+  } else {
+    openAddModal();
+    el('accEmail').value = acc.email;
+    el('accName').value = acc.displayName || '';
+    el('accResult').innerHTML = `Digite a senha de app novamente para reconectar <b>${esc(acc.email)}</b>.`;
+    el('accPass').focus();
+  }
 }
 
 // ---------- Leitor ----------
@@ -471,6 +517,8 @@ let pollTimer = null;
 function startPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(refreshSilent, 30000); }
 async function refreshSilent() {
   if (!el('gate').classList.contains('hidden')) return; // só quando logado (roda mesmo com aba em 2º plano)
+  // Atualiza o estado de conexão das contas (aviso de desconectada) sem barulho.
+  try { const fresh = await api('/api/accounts'); if (Array.isArray(fresh)) { accounts = fresh; renderRail(); } } catch (_) {}
   const listEl = el('messageList');
   const scroll = listEl.scrollTop;
   try {

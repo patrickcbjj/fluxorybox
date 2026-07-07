@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { OAUTH, isConfigured, buildAuthUrl, exchangeCode, profileFromIdToken, fetchMicrosoftPhoto, fetchGooglePhoto } from '../oauth.js';
 import { upsertOAuthAccount } from '../db.js';
 import { verifySession } from '../auth.js';
+import { clearHealth } from '../health.js';
 
 // Guarda os "state" pendentes (protege contra CSRF e amarra provider). Expira em 10 min.
 const states = new Map();
@@ -71,7 +72,7 @@ export default async function oauthRoutes(app) {
       if (!avatarUrl && provider === 'microsoft' && tokens.refresh_token) {
         avatarUrl = await fetchMicrosoftPhoto(tokens.refresh_token);
       }
-      upsertOAuthAccount({
+      const saved = upsertOAuthAccount({
         email: profile.email,
         displayName: profile.name || profile.email,
         provider,
@@ -80,6 +81,7 @@ export default async function oauthRoutes(app) {
         imap: p.imap,
         smtp: p.smtp,
       });
+      if (saved?.id != null) clearHealth(saved.id); // reconectou → zera status
       const email = profile.email;
       return reply.type('text/html').send(page('Conta adicionada! ✅',
         `${email} conectada via ${p.name}. Você já pode fechar esta janela.`));

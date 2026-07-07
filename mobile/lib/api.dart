@@ -68,14 +68,20 @@ class Api {
   }
 
   static dynamic _handle(http.Response res) {
-    if (res.statusCode == 401) throw ApiException('Token inválido (401)');
+    if (res.statusCode == 401) throw ApiException('Sua sessão expirou. Entre novamente.', code: 'AUTH_SESSION');
     if (res.statusCode >= 400) {
+      String msg = 'Não foi possível completar a ação. Tente de novo.';
+      String? code;
+      bool reconnect = false;
       try {
         final e = jsonDecode(res.body);
-        throw ApiException(e['error'] ?? 'Erro ${res.statusCode}');
-      } catch (_) {
-        throw ApiException('Erro ${res.statusCode}');
-      }
+        if (e is Map) {
+          if (e['error'] != null) msg = e['error'].toString();
+          code = e['code']?.toString();
+          reconnect = e['needsReconnect'] == true;
+        }
+      } catch (_) {/* corpo não-JSON: mantém a mensagem amigável */}
+      throw ApiException(msg, code: code, needsReconnect: reconnect);
     }
     return res.body.isEmpty ? null : jsonDecode(res.body);
   }
@@ -154,7 +160,9 @@ class Api {
 
 class ApiException implements Exception {
   final String message;
-  ApiException(this.message);
+  final String? code;
+  final bool needsReconnect;
+  ApiException(this.message, {this.code, this.needsReconnect = false});
   @override
   String toString() => message;
 }

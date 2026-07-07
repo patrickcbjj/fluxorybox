@@ -235,6 +235,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   bool _loading = true;
   bool _loadingMore = false;
   String? _error;
+  bool _needsReconnect = false;
 
   // Busca
   bool _searchOpen = false;
@@ -312,7 +313,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _load({bool reset = true}) async {
-    if (reset) setState(() { _loading = true; _error = null; _offset = 0; });
+    if (reset) setState(() { _loading = true; _error = null; _needsReconnect = false; _offset = 0; });
     try {
       if (_view == 'unified') {
         final data = await Api.inbox(limit: _unifiedLimit);
@@ -324,8 +325,70 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       _error = e.toString();
+      _needsReconnect = e is ApiException && e.needsReconnect;
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  // Ordem das "abas" pro gesto de arrastar: Todas, depois cada conta.
+  List get _viewOrder => ['unified', ..._accounts.cast<Map>().map((a) => a['id'])];
+  void _swipeAccount(int dir) {
+    if (_searching) return;
+    final order = _viewOrder;
+    final idx = order.indexWhere((v) => v == _view);
+    if (idx < 0) return;
+    final next = idx + dir;
+    if (next < 0 || next >= order.length) return;
+    _selectView(order[next]);
+  }
+
+  // Contas atualmente desconectadas (pra avisar e oferecer reconexão).
+  List<Map> get _disconnectedAccounts {
+    if (_view is int) {
+      final a = _account;
+      return (a != null && a['disconnected'] == true) ? [a] : [];
+    }
+    return _accounts.cast<Map>().where((a) => a['disconnected'] == true).toList();
+  }
+
+  void _snack(String m) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _reconnect(Map a) async {
+    // Conta OAuth: o fluxo Microsoft/Google ainda não roda dentro do app.
+    if (a['authType'] == 'oauth') {
+      _snack('Reconecte "${a['email']}" pelo site fluxorybox.discloud.app (login ${a['provider'] ?? 'OAuth'}).');
+      return;
+    }
+    // Conta por senha: reinserir a senha de app.
+    final ctrl = TextEditingController();
+    final pass = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reconectar conta'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Digite a senha de app novamente para reconectar ${a['email']}.',
+              style: const TextStyle(fontSize: 13, color: muted)),
+          const SizedBox(height: 12),
+          TextField(controller: ctrl, obscureText: true, autofocus: true,
+              decoration: const InputDecoration(labelText: 'Senha de app', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Reconectar')),
+        ],
+      ),
+    );
+    if (pass == null || pass.isEmpty) return;
+    try {
+      await Api.addAccount({'displayName': a['displayName'] ?? '', 'email': a['email'], 'password': pass});
+      _snack('Conta reconectada.');
+      try { _accounts = await Api.accounts(); } catch (_) {}
+      await _load(reset: true);
+    } catch (e) {
+      _snack('Falha ao reconectar: $e');
+    }
   }
 
   Future<void> _loadMore() async {
@@ -338,6 +401,8 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   // Refresh silencioso pro polling (não mostra spinner).
   Future<void> _refreshSilent() async {
     if (_searching || !mounted) return;
+    // Atualiza o estado de conexão das contas (aviso de desconectada) sem spinner.
+    try { _accounts = await Api.accounts(); } catch (_) {}
     try {
       if (_view == 'unified') {
         final data = await Api.inbox(limit: _unifiedLimit);
@@ -483,7 +548,21 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
       body: Column(children: [
         _accountRail(),
         if (_searching) _searchBanner(),
-        Expanded(child: _listArea()),
+        ..._disconnectedAccounts.map(_reconnectBanner),
+        Expanded(
+          // Arrastar pro lado troca a conta em foco (Todas ↔ contas).
+          child: GestureDetector(
+            onHorizontalDragEnd: (d) {
+              final v = d.primaryVelocity ?? 0;
+              if (v < -250) {
+                _swipeAccount(1);       // arrastou p/ esquerda → próxima conta
+              } else if (v > 250) {
+                _swipeAccount(-1);      // arrastou p/ direita → conta anterior
+              }
+            },
+            child: _listArea(),
+          ),
+        ),
       ]),
     );
   }
@@ -511,6 +590,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                 child: AccountAvatar(account: a, size: 40),
                 label: (a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString(),
                 pill: accColor(a['email']?.toString()),
+                warn: a['disconnected'] == true,
               )),
           _railItem(
             selected: false,
@@ -524,26 +604,77 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _railItem({required bool selected, required VoidCallback onTap, required Widget child, required String label, Color? pill}) {
+  Widget _railItem({required bool selected, required VoidCallback onTap, required Widget child, required String label, Color? pill, bool warn = false}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 64,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: selected ? (pill ?? accent) : Colors.transparent, width: 2),
+          Stack(clipBehavior: Clip.none, children: [
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: selected ? (warn ? const Color(0xFFFF6B7A) : (pill ?? accent)) : Colors.transparent,
+                    width: 2),
+              ),
+              child: child,
             ),
-            child: child,
-          ),
+            if (warn)
+              Positioned(
+                top: -2, right: -2,
+                child: Container(
+                  width: 16, height: 16,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF6B7A), shape: BoxShape.circle,
+                    border: Border.all(color: surface, width: 2),
+                  ),
+                  child: const Icon(Icons.priority_high_rounded, size: 10, color: Colors.white),
+                ),
+              ),
+          ]),
           const SizedBox(height: 4),
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 10.5, color: selected ? Colors.white : muted)),
         ]),
       ),
+    );
+  }
+
+  Widget _reconnectBanner(Map a) {
+    final msg = (a['statusMessage']?.toString().isNotEmpty == true)
+        ? a['statusMessage'].toString()
+        : 'Reconecte para voltar a receber os emails.';
+    final name = (a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0x1AFF6B7A),
+        border: Border.all(color: const Color(0x52FF6B7A)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(children: [
+        const Icon(Icons.warning_amber_rounded, size: 20, color: Color(0xFFFF6B7A)),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$name foi desconectada', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFFFF6B7A))),
+          Text(msg, style: const TextStyle(fontSize: 11.5, color: Colors.white70)),
+        ])),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed: () => _reconnect(a),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFFF6B7A),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            minimumSize: const Size(0, 0), tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: const Text('Reconectar', style: TextStyle(fontSize: 12.5)),
+        ),
+      ]),
     );
   }
 
@@ -562,7 +693,15 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
 
   Widget _listArea() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) return _ErrorView(error: _error!, onRetry: () => _load(reset: true));
+    if (_error != null) {
+      return _ErrorView(
+        error: _error!,
+        onRetry: () => _load(reset: true),
+        onReconnect: (_needsReconnect && _view is int && _account != null && (_account!).isNotEmpty)
+            ? () => _reconnect(_account!)
+            : null,
+      );
+    }
     if (_messages.isEmpty) {
       return Center(child: Text(_searching ? 'Nenhum resultado.' : 'Sem mensagens por aqui.',
           style: const TextStyle(color: muted)));
@@ -1154,18 +1293,33 @@ class _AccountsScreenState extends State<AccountsScreen> {
 class _ErrorView extends StatelessWidget {
   final String error;
   final VoidCallback onRetry;
-  const _ErrorView({required this.error, required this.onRetry});
+  final VoidCallback? onReconnect;
+  const _ErrorView({required this.error, required this.onRetry, this.onReconnect});
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
+          Icon(onReconnect != null ? Icons.link_off_rounded : Icons.error_outline,
+              size: 48, color: const Color(0xFFFF6B7A)),
           const SizedBox(height: 12),
           Text(error, textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          FilledButton(onPressed: onRetry, child: const Text('Tentar de novo')),
+          if (onReconnect != null)
+            FilledButton.icon(
+              onPressed: onReconnect,
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF6B7A)),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Reconectar conta'),
+            )
+          else
+            FilledButton(onPressed: onRetry, child: const Text('Tentar de novo')),
+          if (onReconnect != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: TextButton(onPressed: onRetry, child: const Text('Tentar de novo')),
+            ),
         ]),
       ),
     );

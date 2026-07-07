@@ -2,6 +2,8 @@ import { listAccounts, getAccount, addPushToken, removePushToken } from '../db.j
 import { listMessages, getMessage, setFlags, moveMessage, listFolders, getAttachment, searchMessages } from '../imap.js';
 import { sendMail } from '../smtp.js';
 import { config } from '../config.js';
+import { classifyError } from '../errors.js';
+import { markHealthy, markUnhealthy } from '../health.js';
 
 export default async function messagesRoutes(app) {
   // Registra/remove o token FCM deste dispositivo (push de email novo).
@@ -30,8 +32,14 @@ export default async function messagesRoutes(app) {
     const messages = [];
     const errors = [];
     results.forEach((r, i) => {
-      if (r.status === 'fulfilled') messages.push(...r.value.messages);
-      else errors.push({ accountId: accounts[i].id, email: accounts[i].email, error: r.reason?.message });
+      if (r.status === 'fulfilled') {
+        markHealthy(accounts[i].id);
+        messages.push(...r.value.messages);
+      } else {
+        markUnhealthy(accounts[i].id, r.reason);
+        const c = classifyError(r.reason);
+        errors.push({ accountId: accounts[i].id, email: accounts[i].email, ...c });
+      }
     });
     messages.sort((a, b) => new Date(b.date) - new Date(a.date));
     return { count: messages.length, messages: messages.slice(0, limit * accounts.length), errors };
@@ -84,9 +92,13 @@ export default async function messagesRoutes(app) {
     const limit = Number(req.query.limit) || config.defaultLimit;
     const offset = Number(req.query.offset) || 0;
     try {
-      return await listMessages(account, { folder, limit, offset });
+      const data = await listMessages(account, { folder, limit, offset });
+      markHealthy(account.id);
+      return data;
     } catch (e) {
-      return reply.code(502).send({ error: e.message });
+      markUnhealthy(account.id, e);
+      const c = classifyError(e);
+      return reply.code(502).send({ error: c.message, code: c.code, needsReconnect: c.needsReconnect });
     }
   });
 
@@ -95,7 +107,15 @@ export default async function messagesRoutes(app) {
     const account = getAccount(Number(req.params.id), { withSecret: true });
     if (!account) return reply.code(404).send({ error: 'conta não encontrada' });
     const folder = req.query.folder || 'INBOX';
-    return getMessage(account, { folder, uid: Number(req.params.uid) });
+    try {
+      const data = await getMessage(account, { folder, uid: Number(req.params.uid) });
+      markHealthy(account.id);
+      return data;
+    } catch (e) {
+      markUnhealthy(account.id, e);
+      const c = classifyError(e);
+      return reply.code(502).send({ error: c.message, code: c.code, needsReconnect: c.needsReconnect });
+    }
   });
 
   // Baixa um anexo (por índice).
@@ -141,7 +161,9 @@ export default async function messagesRoutes(app) {
       const result = await sendMail(account, req.body);
       return result;
     } catch (e) {
-      return reply.code(502).send({ error: e.message });
+      const c = classifyError(e);
+      if (c.needsReconnect) markUnhealthy(account.id, e);
+      return reply.code(502).send({ error: c.message, code: c.code, needsReconnect: c.needsReconnect });
     }
   });
 }
