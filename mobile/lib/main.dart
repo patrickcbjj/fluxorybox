@@ -727,9 +727,21 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                 ]),
               ),
               const SizedBox(width: 8),
+              _roundBtn(
+                ThemeController.isDark.value ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                _toggleTheme,
+                tooltip: ThemeController.isDark.value ? 'Tema claro' : 'Tema escuro',
+              ),
+              const SizedBox(width: 8),
               _roundBtn(Icons.search_rounded, () => setState(() => _searchOpen = true), tooltip: 'Buscar'),
             ]),
     );
+  }
+
+  // Alterna claro/escuro na hora: set (síncrono no valor) + setState reconstrói esta tela.
+  void _toggleTheme() {
+    ThemeController.set(!ThemeController.isDark.value);
+    setState(() {});
   }
 
   // Chips de conta (Todas + cada conta) — como as abas do print.
@@ -1116,22 +1128,12 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = ThemeController.isDark.value;
     return Scaffold(
       appBar: AppBar(title: const Text('Configurações')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(children: [
-              _sectionHeader('Aparência'),
-              SwitchListTile(
-                secondary: Icon(dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded, color: accent),
-                title: const Text('Tema escuro'),
-                subtitle: Text(dark ? 'Fundo escuro' : 'Fundo claro', style: TextStyle(color: C.muted, fontSize: 12)),
-                value: dark,
-                onChanged: (v) => ThemeController.set(v),
-              ),
-              const Divider(height: 1),
-
+              // (O tema claro/escuro agora se troca pelo botão sol/lua na tela de emails.)
               _sectionHeader('Notificações'),
               SwitchListTile(
                 secondary: Icon(Icons.notifications_active_rounded, color: accent),
