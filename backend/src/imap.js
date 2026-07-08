@@ -111,6 +111,24 @@ export async function listFolders(account) {
   });
 }
 
+// Cache de pastas por conta (pra resolver special-use → path sem re-listar toda hora).
+const folderCache = new Map(); // accountId -> { list, ts }
+const FOLDER_TTL = 5 * 60 * 1000;
+
+// Resolve o caminho de uma pasta pela special-use (ex.: '\\Sent' → 'Sent' ou '[Gmail]/E-mails enviados').
+// 'INBOX' e caminhos já explícitos passam direto.
+export async function resolveFolderPath(account, folder) {
+  if (!folder || folder === 'INBOX' || !folder.startsWith('\\')) return folder || 'INBOX';
+  const cached = folderCache.get(account.id);
+  let list = cached && (Date.now() - cached.ts < FOLDER_TTL) ? cached.list : null;
+  if (!list) {
+    list = await listFolders(account);
+    folderCache.set(account.id, { list, ts: Date.now() });
+  }
+  const hit = list.find((f) => f.specialUse === folder);
+  return hit ? hit.path : 'INBOX';
+}
+
 // Lista mensagens (cabeçalhos) de uma pasta, das mais recentes p/ trás.
 export async function listMessages(account, { folder = 'INBOX', limit = 25, offset = 0 } = {}) {
   return withClient(account, async (client) => {

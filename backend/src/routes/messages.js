@@ -1,5 +1,5 @@
 import { listAccounts, getAccount, addPushToken, removePushToken } from '../db.js';
-import { listMessages, getMessage, setFlags, moveMessage, listFolders, getAttachment, searchMessages } from '../imap.js';
+import { listMessages, getMessage, setFlags, moveMessage, listFolders, getAttachment, searchMessages, resolveFolderPath } from '../imap.js';
 import { sendMail } from '../smtp.js';
 import { config } from '../config.js';
 import { classifyError } from '../errors.js';
@@ -21,14 +21,18 @@ export default async function messagesRoutes(app) {
     return { ok: true };
   });
 
-  // Caixa unificada: junta a INBOX de todas as contas, ordenada por data.
+  // Caixa unificada: junta uma pasta (INBOX por padrão, ou special-use como \\Sent) de
+  // todas as contas, ordenada por data. `folder` aceita 'INBOX' ou special-use ('\\Sent' etc.).
   app.get('/api/inbox', async (req, reply) => {
     const limit = Number(req.query.limit) || config.defaultLimit;
+    const wantFolder = req.query.folder || 'INBOX';
     const accounts = listAccounts();
     const results = await Promise.allSettled(
-      accounts.map((a) => {
+      accounts.map(async (a) => {
         const full = getAccount(a.id, { withSecret: true });
-        return listMessages(full, { folder: 'INBOX', limit });
+        // Cada conta tem seu próprio caminho pra Enviados/Rascunhos/etc. — resolve por special-use.
+        const path = await resolveFolderPath(full, wantFolder);
+        return listMessages(full, { folder: path, limit });
       })
     );
     const messages = [];

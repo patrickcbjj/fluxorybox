@@ -1,6 +1,6 @@
 {
-  "versionCode": 13,
-  "versionName": "1.1.10",
-  "apkUrl": "/FluxoryBox-1.1.10-beta.apk",
-  "notes": "Cara nova: tema claro/escuro com botão (Configurações › Aparência), lista de emails redesenhada (mais limpa, ponto de não-lido, remetente e hora em destaque) e a logo nova do FluxoryBox. Configurações reorganizadas por seções, com ligar/desligar notificações no geral e por conta."
+  "versionCode": 14,
+  "versionName": "1.1.11",
+  "apkUrl": "/FluxoryBox-1.1.11-beta.apk",
+  "notes": "Cara nova de verdade: cabeçalho grande com 'Atualizado agora há pouco', abas de conta no topo, barra inferior de pastas (E-mail, Enviados, Rascunhos, Lixeira) e botão de escrever quadrado. Troca entre tema claro/escuro agora é instantânea (sem travar). A caixa unificada também navega entre as pastas."
 }

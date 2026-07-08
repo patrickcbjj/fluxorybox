@@ -89,8 +89,8 @@ class Api {
   // ---- Endpoints ----
   static Future<List<dynamic>> accounts() async => await _get('/api/accounts');
 
-  static Future<Map> inbox({int limit = 40}) async =>
-      await _get('/api/inbox?limit=$limit');
+  static Future<Map> inbox({int limit = 40, String folder = 'INBOX'}) async =>
+      await _get('/api/inbox?limit=$limit&folder=${Uri.encodeComponent(folder)}');
 
   // Mensagens de uma pasta de uma conta (com paginação).
   static Future<Map> accountMessages(int accountId,

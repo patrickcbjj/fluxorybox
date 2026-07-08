@@ -151,6 +151,8 @@ class FluxoryBoxApp extends StatelessWidget {
         title: 'FluxoryBox',
         navigatorKey: navigatorKey,
         debugShowCheckedModeBanner: false,
+        // Troca de tema instantânea (sem o cross-fade de ~200ms que dava a sensação de lag).
+        themeAnimationDuration: Duration.zero,
         theme: _theme(dark),
         home: Api.configured ? const InboxScreen() : const SettingsScreen(),
       ),
@@ -299,7 +301,8 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   List _messages = [];
   List _folders = [];
   dynamic _view = 'unified'; // 'unified' | accountId(int)
-  String _folder = 'INBOX';
+  String _folder = 'INBOX';       // caminho real da pasta (por conta)
+  String _navFolder = 'INBOX';    // pasta do bottom nav (special-use: INBOX/\\Sent/\\Drafts/\\Trash)
   int _offset = 0;
   int _unifiedLimit = 40;
   bool _loading = true;
@@ -307,6 +310,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   bool _refreshing = false;
   String? _error;
   bool _needsReconnect = false;
+  DateTime? _lastSync;
 
   // Busca
   bool _searchOpen = false;
@@ -386,25 +390,61 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
       ? _accounts.cast<Map>().firstWhere((a) => a['id'] == _view, orElse: () => {})
       : null;
 
-  String get _contextTitle {
-    if (_view == 'unified') return 'Todas as contas';
-    final a = _account;
-    if (a == null || a.isEmpty) return '';
-    return (a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString();
+  // Rótulo da pasta atual (bottom nav) — ou o path custom escolhido no menu de pastas.
+  String get _folderLabel {
+    if (_navFolder == 'INBOX') {
+      // pasta custom (não-especial) escolhida no menu: mostra o nome dela
+      if (_view is int && _folder != 'INBOX') {
+        final f = _folders.cast<Map>().firstWhere((x) => x['path'] == _folder, orElse: () => {});
+        if (f.isNotEmpty) return folderLabels[f['specialUse']] ?? (f['name'] ?? _folder).toString();
+      }
+      return 'Entrada';
+    }
+    return folderLabels[_navFolder] ?? 'Entrada';
   }
 
-  String get _folderLabel {
-    final f = _folders.cast<Map>().firstWhere((x) => x['path'] == _folder, orElse: () => {});
-    if (f.isNotEmpty) {
-      return folderLabels[f['specialUse']] ??
-          (f['path'] == 'INBOX' ? 'Caixa de entrada' : (f['name'] ?? _folder).toString());
+  // Chave de cache: por view + pasta atual.
+  String get _cacheFolder => _view == 'unified' ? _navFolder : _folder;
+
+  // "Atualizado agora há pouco" / "há X min".
+  String get _updatedLabel {
+    final t = _lastSync;
+    if (t == null) return 'Sincronizando...';
+    final mins = DateTime.now().difference(t).inMinutes;
+    if (mins <= 0) return 'Atualizado agora há pouco';
+    if (mins == 1) return 'Atualizado há 1 minuto';
+    if (mins < 60) return 'Atualizado há $mins minutos';
+    final h = mins ~/ 60;
+    return 'Atualizado há ${h}h';
+  }
+
+  // Resolve o caminho real de uma special-use nas pastas da conta selecionada.
+  String _resolvePath(String special) {
+    if (special == 'INBOX') return 'INBOX';
+    final f = _folders.cast<Map>().firstWhere((x) => x['specialUse'] == special, orElse: () => {});
+    return f.isNotEmpty ? f['path'].toString() : 'INBOX';
+  }
+
+  // Bottom nav: troca a pasta (E-mail/Enviados/Rascunhos/Lixeira) em qualquer view.
+  Future<void> _selectNavFolder(String special) async {
+    if (special == _navFolder && !(_view is int && _folder != _resolvePath(special))) return;
+    if (_view is int && _folders.isEmpty) {
+      try { _folders = await Api.folders(_view as int); } catch (_) {}
     }
-    return 'Caixa de entrada';
+    setState(() {
+      _navFolder = special;
+      _offset = 0; _unifiedLimit = 40;
+      _folder = _view is int ? _resolvePath(special) : 'INBOX';
+      _searching = false; _searchOpen = false; _query = ''; _searchCtrl.clear();
+    });
+    final cached = await Cache.loadList(_view, _cacheFolder);
+    if (mounted && cached.isNotEmpty) setState(() { _messages = cached; _loading = false; });
+    await _load(reset: true, silent: cached.isNotEmpty);
   }
 
   Future<void> _selectView(dynamic v) async {
     setState(() {
-      _view = v; _folder = 'INBOX'; _offset = 0; _unifiedLimit = 40; _folders = [];
+      _view = v; _folder = 'INBOX'; _navFolder = 'INBOX'; _offset = 0; _unifiedLimit = 40; _folders = [];
       _searching = false; _searchOpen = false; _query = ''; _searchCtrl.clear();
     });
     // Mostra o cache desta view na hora; sincroniza atrás sem skeleton se houver cache.
@@ -425,15 +465,15 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     else if (reset) _offset = 0;
     try {
       if (_view == 'unified') {
-        final data = await Api.inbox(limit: _unifiedLimit);
+        final data = await Api.inbox(limit: _unifiedLimit, folder: _navFolder);
         _messages = data['messages'] ?? [];
       } else {
         final data = await Api.accountMessages(_view as int, folder: _folder, limit: page, offset: _offset);
         final list = (data['messages'] ?? []) as List;
         _messages = (reset || _offset == 0) ? list : [..._messages, ...list];
       }
-      _error = null; _needsReconnect = false;
-      if (!_searching) Cache.saveList(_view, _folder, _messages); // atualiza o cache
+      _error = null; _needsReconnect = false; _lastSync = DateTime.now();
+      if (!_searching) Cache.saveList(_view, _cacheFolder, _messages); // atualiza o cache
     } catch (e) {
       // Se já temos cache na tela, mantém a lista e só ignora o erro silenciosamente.
       if (!(silent && _messages.isNotEmpty)) {
@@ -527,14 +567,15 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     try { _accounts = await Api.accounts(); gAccounts = _accounts; Cache.saveAccounts(_accounts); } catch (_) {}
     try {
       if (_view == 'unified') {
-        final data = await Api.inbox(limit: _unifiedLimit);
+        final data = await Api.inbox(limit: _unifiedLimit, folder: _navFolder);
         _messages = data['messages'] ?? [];
       } else {
         final span = _offset + page;
         final data = await Api.accountMessages(_view as int, folder: _folder, limit: span, offset: 0);
         _messages = data['messages'] ?? [];
       }
-      Cache.saveList(_view, _folder, _messages); // mantém o cache fresco
+      Cache.saveList(_view, _cacheFolder, _messages); // mantém o cache fresco
+      _lastSync = DateTime.now();
     } catch (_) {}
     if (mounted) setState(() => _refreshing = false);
   }
@@ -585,7 +626,15 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
       ),
     );
     if (chosen != null && chosen != _folder) {
-      setState(() { _folder = chosen; _offset = 0; });
+      // Sincroniza o bottom nav: se a pasta escolhida for uma das 4 principais, destaca-a;
+      // senão usa 'INBOX' como sentinela (o título mostra o nome da pasta custom).
+      final f = _folders.cast<Map>().firstWhere((x) => x['path'] == chosen, orElse: () => {});
+      final special = f['specialUse']?.toString();
+      const navSet = {'\\Sent', '\\Drafts', '\\Trash'};
+      setState(() {
+        _folder = chosen; _offset = 0;
+        _navFolder = (special != null && navSet.contains(special)) ? special : 'INBOX';
+      });
       await _load(reset: true);
     }
   }
@@ -593,123 +642,125 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 12,
-        bottom: _refreshing
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(2),
-                child: SizedBox(height: 2, child: LinearProgressIndicator(minHeight: 2, backgroundColor: Colors.transparent)),
-              )
-            : null,
-        title: _searchOpen
-            ? TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _runSearch(),
-                decoration: const InputDecoration(
-                    hintText: 'Buscar no servidor...', border: InputBorder.none),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_contextTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
-                  if (_view != 'unified')
-                    GestureDetector(
-                      onTap: _openFolders,
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(_folderLabel, style: TextStyle(fontSize: 12, color: C.muted)),
-                        Icon(Icons.arrow_drop_down, size: 18, color: C.muted),
-                      ]),
-                    )
-                  else
-                    Text('Caixa de entrada', style: TextStyle(fontSize: 12, color: C.muted)),
-                ],
-              ),
-        actions: [
-          IconButton(
-            icon: Icon(_searchOpen ? Icons.close_rounded : Icons.search_rounded),
-            onPressed: () {
-              if (_searchOpen) { _clearSearch(); }
-              else { setState(() => _searchOpen = true); }
-            },
-          ),
-          if (!_searchOpen) ...[
-            IconButton(
-              icon: const Icon(Icons.refresh_rounded),
-              onPressed: () {
-                if (_searching) { _runSearch(); } else { _refreshSilent(visible: true); }
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings_rounded),
-              tooltip: 'Configurações',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesScreen()))
-                  .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); }),
-            ),
-          ],
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: accent,
-        icon: const Icon(Icons.edit_rounded),
-        label: const Text('Escrever'),
-        onPressed: _accounts.isEmpty ? null : () => _openCompose(),
-      ),
-      body: Column(children: [
-        _accountRail(),
-        if (_searching) _searchBanner(),
-        ..._disconnectedAccounts.map(_reconnectBanner),
-        Expanded(
-          // Arrastar pro lado troca a conta em foco (Todas ↔ contas).
-          child: GestureDetector(
-            onHorizontalDragEnd: (d) {
-              final v = d.primaryVelocity ?? 0;
-              if (v < -250) {
-                _swipeAccount(1);       // arrastou p/ esquerda → próxima conta
-              } else if (v > 250) {
-                _swipeAccount(-1);      // arrastou p/ direita → conta anterior
-              }
-            },
-            child: _listArea(),
-          ),
+      backgroundColor: C.bg,
+      floatingActionButton: SizedBox(
+        width: 58, height: 58,
+        child: FloatingActionButton(
+          backgroundColor: accent,
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          onPressed: _accounts.isEmpty ? null : () => _openCompose(),
+          child: const Icon(Icons.edit_rounded, color: Colors.white),
         ),
-      ]),
+      ),
+      bottomNavigationBar: _bottomNav(),
+      body: SafeArea(
+        bottom: false,
+        child: Column(children: [
+          _header(),
+          if (_refreshing)
+            const SizedBox(height: 2, child: LinearProgressIndicator(minHeight: 2)),
+          if (!_searchOpen) _accountChips(),
+          if (_searching) _searchBanner(),
+          ..._disconnectedAccounts.map(_reconnectBanner),
+          Expanded(
+            child: GestureDetector(
+              onHorizontalDragEnd: (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v < -250) { _swipeAccount(1); }
+                else if (v > 250) { _swipeAccount(-1); }
+              },
+              child: _listArea(),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 
-  Widget _accountRail() {
-    return Container(
-      height: 84,
-      decoration: BoxDecoration(
-        color: C.surface,
-        border: Border(bottom: BorderSide(color: C.line)),
+  // Botão quadrado arredondado (menu/busca) — estilo do print.
+  Widget _roundBtn(IconData icon, VoidCallback onTap, {String? tooltip}) {
+    final btn = Material(
+      color: C.surface2,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: SizedBox(width: 46, height: 46, child: Icon(icon, size: 22, color: C.text)),
       ),
+    );
+    return tooltip != null ? Tooltip(message: tooltip, child: btn) : btn;
+  }
+
+  Widget _header() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      child: _searchOpen
+          ? Row(children: [
+              _roundBtn(Icons.arrow_back_rounded, _clearSearch),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _runSearch(),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar no servidor...',
+                    filled: true, fillColor: C.surface2,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                  ),
+                ),
+              ),
+            ])
+          : Row(children: [
+              _roundBtn(Icons.menu_rounded, _openMenu, tooltip: 'Menu'),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text(_folderLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: C.text)),
+                  const SizedBox(height: 1),
+                  Text(_updatedLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12.5, color: C.muted)),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              _roundBtn(Icons.search_rounded, () => setState(() => _searchOpen = true), tooltip: 'Buscar'),
+            ]),
+    );
+  }
+
+  // Chips de conta (Todas + cada conta) — como as abas do print.
+  Widget _accountChips() {
+    return SizedBox(
+      height: 48,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
         children: [
-          _railItem(
+          _chip(
             selected: _view == 'unified',
             onTap: () => _selectView('unified'),
-            child: CircleAvatar(radius: 20, backgroundColor: C.surface2, child: Icon(Icons.all_inbox_rounded, size: 20, color: accent)),
+            icon: Icons.all_inbox_rounded,
             label: 'Todas',
           ),
-          ..._accounts.cast<Map>().map((a) => _railItem(
-                selected: _view == a['id'],
-                onTap: () => _selectView(a['id']),
-                child: AccountAvatar(account: a, size: 40),
-                label: (a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString(),
-                pill: accColor(a['email']?.toString()),
-                warn: a['disconnected'] == true,
-              )),
-          _railItem(
+          ..._accounts.cast<Map>().map((a) {
+            final name = (a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString();
+            return _chip(
+              selected: _view == a['id'],
+              onTap: () => _selectView(a['id']),
+              label: name,
+              avatar: a,
+              warn: a['disconnected'] == true,
+            );
+          }),
+          _chip(
             selected: false,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
-                .then((_) async { try { _accounts = await Api.accounts(); } catch (_) {} if (mounted) setState(() {}); }),
-            child: CircleAvatar(radius: 20, backgroundColor: C.surface2, child: Icon(Icons.add_rounded, size: 22, color: C.muted)),
+                .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); }),
+            icon: Icons.add_rounded,
             label: 'Adicionar',
           ),
         ],
@@ -717,40 +768,111 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _railItem({required bool selected, required VoidCallback onTap, required Widget child, required String label, Color? pill, bool warn = false}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 64,
-        margin: const EdgeInsets.symmetric(horizontal: 2),
+  Widget _chip({required bool selected, required VoidCallback onTap, String? label, IconData? icon, Map? avatar, bool warn = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: selected ? accent : C.surface2,
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.only(left: avatar != null ? 6 : 14, right: 14, top: 8, bottom: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (avatar != null) ...[
+                AccountAvatar(account: avatar, size: 22),
+                const SizedBox(width: 7),
+              ] else if (icon != null) ...[
+                Icon(icon, size: 18, color: selected ? Colors.white : C.muted),
+                const SizedBox(width: 6),
+              ],
+              Text(label ?? '', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : C.text)),
+              if (warn) ...[
+                const SizedBox(width: 5),
+                const Icon(Icons.error_rounded, size: 14, color: Color(0xFFFF6B7A)),
+              ],
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Bottom nav de pastas: E-mail / Enviados / Rascunhos / Lixeira.
+  Widget _bottomNav() {
+    const items = [
+      ['INBOX', Icons.mail_outline_rounded, Icons.mail_rounded, 'E-mail'],
+      ['\\Sent', Icons.send_outlined, Icons.send_rounded, 'Enviados'],
+      ['\\Drafts', Icons.description_outlined, Icons.description_rounded, 'Rascunhos'],
+      ['\\Trash', Icons.delete_outline_rounded, Icons.delete_rounded, 'Lixeira'],
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: C.surface,
+        border: Border(top: BorderSide(color: C.line)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 60,
+          child: Row(children: items.map((it) {
+            final special = it[0] as String;
+            final active = _navFolder == special;
+            return Expanded(
+              child: InkWell(
+                onTap: () => _selectNavFolder(special),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(active ? it[2] as IconData : it[1] as IconData,
+                      size: 23, color: active ? accent : C.muted),
+                  const SizedBox(height: 3),
+                  Text(it[3] as String, style: TextStyle(fontSize: 11,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                      color: active ? accent : C.muted)),
+                ]),
+              ),
+            );
+          }).toList()),
+        ),
+      ),
+    );
+  }
+
+  // Menu (botão de menu do header): pastas da conta + gerenciar contas + configurações.
+  void _openMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: C.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Stack(clipBehavior: Clip.none, children: [
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: selected ? (warn ? const Color(0xFFFF6B7A) : (pill ?? accent)) : Colors.transparent,
-                    width: 2),
-              ),
-              child: child,
+          Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(color: C.line, borderRadius: BorderRadius.circular(2))),
+          if (_view is int)
+            ListTile(
+              leading: Icon(Icons.folder_outlined, color: accent),
+              title: const Text('Todas as pastas'),
+              subtitle: Text('Spam, Arquivo e outras', style: TextStyle(color: C.muted, fontSize: 12)),
+              onTap: () { Navigator.pop(context); _openFolders(); },
             ),
-            if (warn)
-              Positioned(
-                top: -2, right: -2,
-                child: Container(
-                  width: 16, height: 16,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF6B7A), shape: BoxShape.circle,
-                    border: Border.all(color: C.surface, width: 2),
-                  ),
-                  child: const Icon(Icons.priority_high_rounded, size: 10, color: Colors.white),
-                ),
-              ),
-          ]),
-          const SizedBox(height: 4),
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 10.5, color: selected ? C.text : C.muted)),
+          ListTile(
+            leading: Icon(Icons.manage_accounts_rounded, color: accent),
+            title: const Text('Gerenciar contas'),
+            onTap: () { Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
+                  .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.settings_rounded, color: accent),
+            title: const Text('Configurações'),
+            onTap: () { Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesScreen()))
+                  .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
+            },
+          ),
+          const SizedBox(height: 8),
         ]),
       ),
     );
