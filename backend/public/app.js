@@ -43,6 +43,10 @@ const ICONS = {
   link: S('<path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/>'),
   eraser: S('<path d="M4 4h16M6 8l4 12M14 8l-4 12M9 8h6"/>'),
   alert: S('<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'),
+  sun: S('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  moon: S('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'),
+  mailRead: S('<path d="M3 9l9 6 9-6"/><path d="M3 9V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3"/><path d="M3 9v9a2 2 0 0 0 2 2h9"/><path d="M16 19l2 2 4-4"/>'),
+  check: S('<path d="M20 6L9 17l-5-5"/>'),
 };
 const BRAND = {
   microsoft: '<svg viewBox="0 0 23 23"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>',
@@ -155,6 +159,17 @@ el('logoutBtn').onclick = () => { localStorage.removeItem('mail_token'); TOKEN =
 el('logoutBtn').innerHTML = ICONS.logout;
 el('manageBtn').innerHTML = ICONS.gear;
 el('refreshBtn').innerHTML = ICONS.refresh;
+el('markAllBtn').innerHTML = ICONS.mailRead;
+el('markAllBtn').onclick = markAllRead;
+el('themeBtn').onclick = toggleTheme;
+applyThemeBtn();
+// Barra de seleção múltipla.
+el('selClose').innerHTML = ICONS.x; el('selClose').onclick = clearSelection;
+el('selRead').innerHTML = ICONS.mailRead; el('selRead').onclick = () => batchSeen(true);
+el('selUnread').innerHTML = ICONS.unread; el('selUnread').onclick = () => batchSeen(false);
+el('selStar').innerHTML = ICONS.star; el('selStar').onclick = () => batchStar(true);
+el('selArchive').innerHTML = ICONS.archive; el('selArchive').onclick = () => batchMove('Archive', 'Arquivo');
+el('selTrash').innerHTML = ICONS.trash; el('selTrash').onclick = () => batchMove('Trash', 'Lixeira');
 el('searchIc').innerHTML = ICONS.search;
 el('composeIc').innerHTML = ICONS.pencil;
 el('sendIc').innerHTML = ICONS.send;
@@ -287,20 +302,113 @@ function renderList(msgs, opts = {}) {
     const f = m.from[0] || {}; const from = f.name || f.address || '(desconhecido)';
     const showTag = view === 'unified';
     const star = m.flagged ? `<span class="star-dot" title="Favorito">${ICONS.starFill}</span>` : '';
-    return `<div class="msg ${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'active' : ''}" data-i="${i}"
+    const sel = selected.has(msgKey(m)) ? 'selected' : '';
+    return `<div class="msg ${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'active' : ''} ${sel}" data-i="${i}"
         style="--pill:${accColor(m.accountEmail || '')}">
+      <span class="msg-check" data-check="${i}">${ICONS.check}</span>
       ${senderAvatar(f.name, f.address)}
       <div class="msg-body">
         <div class="msg-row"><span class="msg-from">${esc(from)}</span><span class="msg-date">${star}${fmtDate(m.date)}</span></div>
         <div class="msg-subject">${esc(m.subject)}</div>
         ${showTag ? `<div class="msg-acc"><span class="tag" style="background:${accColor(m.accountEmail || '')}"></span>${esc(m.accountEmail || '')}</div>` : ''}
       </div>
+      <div class="msg-actions">
+        <button data-act="archive" data-i="${i}" title="Arquivar">${ICONS.archive}</button>
+        <button class="danger" data-act="trash" data-i="${i}" title="Lixeira">${ICONS.trash}</button>
+      </div>
     </div>`;
   }).join('');
+  listEl.classList.toggle('selecting', selected.size > 0);
   el('messageList').innerHTML = rows + `<div class="load-more"><button id="loadMoreBtn">Carregar mais</button></div>`;
-  el('messageList').querySelectorAll('.msg').forEach((n) => n.onclick = () => openMessage(msgs[Number(n.dataset.i)]));
+  el('messageList').querySelectorAll('.msg').forEach((n) => {
+    const m = msgs[Number(n.dataset.i)];
+    n.onclick = () => { if (selected.size > 0) toggleSelect(m); else openMessage(m); };
+    const chk = n.querySelector('.msg-check');
+    if (chk) chk.onclick = (e) => { e.stopPropagation(); toggleSelect(m); };
+    n.querySelectorAll('.msg-actions button').forEach((b) => b.onclick = (e) => {
+      e.stopPropagation();
+      quickMove(m, b.dataset.act === 'trash' ? 'Trash' : 'Archive', b.dataset.act === 'trash' ? 'Lixeira' : 'Arquivo');
+    });
+  });
   const lm = el('loadMoreBtn'); if (lm) lm.onclick = () => loadMore(lm);
+  renderSelBar();
   renderReconnectBanner();
+}
+
+// ---------- Fase 3: seleção múltipla, ações em lote, marcar tudo lido ----------
+let selected = new Set();
+function flagsUrl(m) { return `/api/accounts/${m.accountId}/messages/${m.uid}/flags?folder=${encodeURIComponent(m.folder)}`; }
+function moveUrl(m) { return `/api/accounts/${m.accountId}/messages/${m.uid}/move?folder=${encodeURIComponent(m.folder)}`; }
+
+function toggleSelect(m) {
+  const k = msgKey(m);
+  selected.has(k) ? selected.delete(k) : selected.add(k);
+  renderList(currentFiltered());
+}
+function clearSelection() { selected.clear(); renderList(currentFiltered()); }
+function selectedMsgs() { return currentMessages.filter((m) => selected.has(msgKey(m))); }
+
+function renderSelBar() {
+  const bar = el('selBar'); if (!bar) return;
+  bar.classList.toggle('hidden', selected.size === 0);
+  el('selCount').textContent = `${selected.size} selecionada${selected.size === 1 ? '' : 's'}`;
+}
+
+async function batchSeen(seen) {
+  const sel = selectedMsgs(); selected.clear();
+  sel.forEach((m) => { m.seen = seen; });
+  renderList(currentFiltered());
+  for (const m of sel) {
+    try { await api(flagsUrl(m), { method: 'POST', body: JSON.stringify(seen ? { add: ['\\Seen'] } : { remove: ['\\Seen'] }) }); } catch (e) {}
+  }
+}
+async function batchStar(on) {
+  const sel = selectedMsgs(); selected.clear();
+  sel.forEach((m) => { m.flagged = on; });
+  renderList(currentFiltered());
+  for (const m of sel) {
+    try { await api(flagsUrl(m), { method: 'POST', body: JSON.stringify(on ? { add: ['\\Flagged'] } : { remove: ['\\Flagged'] }) }); } catch (e) {}
+  }
+}
+async function batchMove(target, label) {
+  const sel = selectedMsgs(); const keys = new Set(sel.map(msgKey)); selected.clear();
+  currentMessages = currentMessages.filter((m) => !keys.has(msgKey(m)));
+  renderList(currentFiltered());
+  let ok = 0;
+  for (const m of sel) { try { await api(moveUrl(m), { method: 'POST', body: JSON.stringify({ target }) }); ok++; } catch (e) {} }
+  toast(`${ok} movida(s) para ${label}`);
+}
+async function quickMove(m, target, label) {
+  currentMessages = currentMessages.filter((x) => msgKey(x) !== msgKey(m));
+  renderList(currentFiltered());
+  try { await api(moveUrl(m), { method: 'POST', body: JSON.stringify({ target }) }); toast(`Movida para ${label}`); }
+  catch (e) { toast('Falha ao mover'); loadList(false); }
+}
+async function markAllRead() {
+  const un = currentMessages.filter((m) => !m.seen);
+  if (!un.length) { toast('Nada para marcar.'); return; }
+  un.forEach((m) => { m.seen = true; });
+  renderList(currentFiltered());
+  for (const m of un) { try { await api(flagsUrl(m), { method: 'POST', body: JSON.stringify({ add: ['\\Seen'] }) }); } catch (e) {} }
+  toast(`${un.length} marcada(s) como lida(s)`);
+}
+
+// toast simples
+function toast(msg) {
+  let t = el('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ---------- Tema claro/escuro ----------
+function currentTheme() { return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'; }
+function applyThemeBtn() { const b = el('themeBtn'); if (b) b.innerHTML = currentTheme() === 'light' ? ICONS.moon : ICONS.sun; }
+function toggleTheme() {
+  const next = currentTheme() === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('theme', next); } catch (e) {}
+  applyThemeBtn();
 }
 
 // ---------- Contas desconectadas / reconexão ----------

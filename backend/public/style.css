@@ -19,6 +19,8 @@
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
+/* O leitor off-canvas (translateX 100%) no mobile não deve criar rolagem horizontal. */
+body { overflow-x: hidden; }
 body {
   font-family: "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
@@ -188,13 +190,13 @@ body.loading .loadbar::after {
 .msg-body { flex: 1; min-width: 0; }
 .msg-row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .msg-from { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.msg.unread .msg-from { color: #fff; }
+.msg.unread .msg-from { color: var(--text); }
 .msg.unread .msg-from::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--accent); margin-right: 7px; vertical-align: middle; }
 .msg-date { color: var(--muted-2); font-size: 11.5px; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; }
 .star-dot svg { width: 13px; height: 13px; color: #ffc53d; }
 .msg-subject { font-size: 13px; color: var(--text); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.msg.unread .msg-subject { color: #fff; }
+.msg.unread .msg-subject { color: var(--text); }
 .msg-acc { font-size: 11px; color: var(--muted-2); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
 .msg-acc .tag { width: 7px; height: 7px; border-radius: 50%; }
 
@@ -329,6 +331,18 @@ body.loading .loadbar::after {
   .avatar { width: 38px; height: 38px; }
   .reader { inset: 0; }
   .reader-inner { padding: 16px; }
+  /* Cabeçalho compacto: "Escrever" vira só ícone, botões e espaçamentos menores. */
+  .mid-head { padding: 12px; gap: 6px; }
+  .ctx { min-width: 70px; }
+  .ctx h2 { font-size: 15px; }
+  .mid-head .primary { padding: 9px; font-size: 0; }
+  .mid-head .primary .btn-ic svg { width: 18px; height: 18px; }
+  .mid-head .icon-btn { width: 34px; height: 34px; }
+  /* Barra de seleção enxuta (não corta: ícones menores + rola se precisar) */
+  .sel-bar { padding: 8px 10px; gap: 8px; }
+  .sel-bar #selCount { font-size: 12.5px; white-space: nowrap; }
+  .sel-actions { gap: 0; overflow-x: auto; }
+  .sel-bar .icon-btn { width: 32px; height: 32px; flex: 0 0 auto; }
 }
 
 /* ---------- Conta desconectada (aviso na régua + banner de reconexão) ---------- */
@@ -354,3 +368,55 @@ body.loading .loadbar::after {
   font-size: 12.5px; padding: 7px 12px; border-radius: 8px; white-space: nowrap;
 }
 .rb-btn:hover { filter: brightness(1.08); }
+
+/* ============ Tema claro ============ */
+:root[data-theme="light"] {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --surface-3: #e3e7ee;
+  --line: #e2e6ee;
+  --line-soft: #eef1f5;
+  --text: #1a1d24;
+  --muted: #6b7280;
+  --muted-2: #99a0ac;
+  --shadow: 0 12px 40px rgba(20,30,60,.12);
+}
+:root[data-theme="light"] .msg.active { background: var(--surface-2); }
+:root[data-theme="light"] .msg:hover { background: var(--surface-2); }
+
+/* ============ Fase 3: seleção múltipla + ações rápidas ============ */
+.sel-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+  background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.sel-bar #selCount { font-weight: 700; font-size: 15px; }
+.sel-actions { margin-left: auto; display: flex; gap: 2px; }
+
+/* checkbox de seleção (aparece no hover ou quando já há seleção) */
+.msg-check { position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; border-radius: 50%; display: none; align-items: center; justify-content: center;
+  background: var(--surface); border: 2px solid var(--muted-2); color: transparent; z-index: 2; }
+.msg-check svg { width: 13px; height: 13px; }
+.msg:hover .msg-check, .list.selecting .msg-check { display: flex; }
+.msg:hover .msg-avatar, .list.selecting .msg-avatar { opacity: .25; }
+.msg.selected .msg-check { display: flex; background: var(--accent); border-color: var(--accent); color: #fff; }
+.msg.selected { background: rgba(109,124,255,.14); }
+.msg.selected .msg-avatar { opacity: .25; }
+
+/* ações rápidas no hover (arquivar/lixeira) */
+.msg-actions { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  display: none; gap: 2px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 9px; padding: 2px; box-shadow: 0 4px 14px rgba(0,0,0,.18); z-index: 2; }
+.msg:hover .msg-actions { display: flex; }
+.list.selecting .msg-actions { display: none !important; }
+.msg-actions button { width: 30px; height: 30px; border-radius: 7px; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center; }
+.msg-actions button svg { width: 16px; height: 16px; }
+.msg-actions button:hover { background: var(--surface-3); color: var(--text); }
+.msg-actions button.danger:hover { background: rgba(255,107,122,.15); color: var(--danger); }
+
+/* toast (feedback de ação) */
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
+  background: var(--surface-3); color: var(--text); padding: 11px 18px; border-radius: 10px;
+  font-size: 13px; font-weight: 500; box-shadow: var(--shadow); border: 1px solid var(--line);
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 200; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }

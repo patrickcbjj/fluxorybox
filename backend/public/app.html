@@ -7,6 +7,10 @@
   <link rel="icon" href="/favicon-32.png" />
   <link rel="apple-touch-icon" href="/favicon-180.png" />
   <link rel="stylesheet" href="/style.css" />
+  <script>
+    // Aplica o tema salvo antes de pintar (evita flash). Padrão: escuro.
+    try { document.documentElement.dataset.theme = localStorage.getItem('theme') || 'dark'; } catch (e) {}
+  </script>
 </head>
 <body>
   <!-- Tela de acesso -->
@@ -53,9 +57,22 @@
           <span class="search-ic" id="searchIc"></span>
           <input id="search" type="text" placeholder="Buscar por assunto ou remetente" />
         </div>
+        <button class="icon-btn" id="markAllBtn" title="Marcar tudo como lido"></button>
+        <button class="icon-btn" id="themeBtn" title="Tema claro/escuro"></button>
         <button class="icon-btn" id="refreshBtn" title="Atualizar"></button>
         <button class="primary" id="composeBtn"><span class="btn-ic" id="composeIc"></span>Escrever</button>
       </header>
+      <div class="sel-bar hidden" id="selBar">
+        <button class="icon-btn" id="selClose" title="Cancelar"></button>
+        <span id="selCount">0</span>
+        <div class="sel-actions">
+          <button class="icon-btn" id="selRead" title="Marcar lida"></button>
+          <button class="icon-btn" id="selUnread" title="Marcar não lida"></button>
+          <button class="icon-btn" id="selStar" title="Favoritar"></button>
+          <button class="icon-btn" id="selArchive" title="Arquivar"></button>
+          <button class="icon-btn" id="selTrash" title="Lixeira"></button>
+        </div>
+      </div>
       <div class="loadbar" id="loadbar" aria-hidden="true"></div>
       <div class="list" id="messageList"></div>
     </section>
