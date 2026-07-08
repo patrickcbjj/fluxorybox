@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -23,6 +24,25 @@ class Notifications {
   );
   static bool _ready = false;
 
+  // Handler que abre o email tocado. main.dart registra via setMessageHandler().
+  // Se a notificação (app frio) chegar antes do handler existir, guarda em _pending.
+  static void Function(Map<String, dynamic> data)? _onSelect;
+  static Map<String, dynamic>? _pending;
+
+  /// Registra quem abre o email ao tocar na notificação; drena o pendente (app frio).
+  static void setMessageHandler(void Function(Map<String, dynamic> data) h) {
+    _onSelect = h;
+    final p = _pending;
+    if (p != null) { _pending = null; h(p); }
+  }
+
+  // Roteia o toque: só age se tiver conta+uid (é um email de verdade).
+  static void _dispatch(Map<String, dynamic>? data) {
+    if (data == null) return;
+    if (data['uid'] == null || data['accountId'] == null) return;
+    if (_onSelect != null) { _onSelect!(data); } else { _pending = data; }
+  }
+
   /// Inicializa Firebase + canal local. Chamar cedo no main().
   static Future<void> init() async {
     if (_ready) return;
@@ -30,12 +50,21 @@ class Notifications {
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await _local.initialize(const InitializationSettings(android: androidInit));
+    await _local.initialize(
+      const InitializationSettings(android: androidInit),
+      // Toque numa notificação LOCAL (foreground): payload traz o data do push.
+      onDidReceiveNotificationResponse: (resp) {
+        final p = resp.payload;
+        if (p == null || p.isEmpty) return;
+        try { _dispatch(Map<String, dynamic>.from(jsonDecode(p))); } catch (_) {}
+      },
+    );
     await _local
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_channel);
 
-    // Em foreground o sistema não mostra a notificação — mostramos manualmente.
+    // Em foreground o sistema não mostra a notificação — mostramos manualmente,
+    // carregando o data do push no payload pra saber qual email abrir no toque.
     FirebaseMessaging.onMessage.listen((m) {
       final n = m.notification;
       if (n == null) return;
@@ -51,8 +80,15 @@ class Notifications {
             icon: '@mipmap/ic_launcher',
           ),
         ),
+        payload: jsonEncode(m.data),
       );
     });
+
+    // Toque na notificação do SISTEMA (app em background) e app aberto do zero (frio).
+    FirebaseMessaging.onMessageOpenedApp.listen((m) => _dispatch(Map<String, dynamic>.from(m.data)));
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) _dispatch(Map<String, dynamic>.from(initial.data));
+
     _ready = true;
   }
 

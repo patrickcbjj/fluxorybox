@@ -2,7 +2,8 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { accessTokenFor } from './oauth.js';
 
-// Abre uma conexão IMAP para a conta (com senha OU token OAuth já disponíveis).
+// Abre uma conexão IMAP CRUA para a conta (senha OU token OAuth). Usada pelo pool
+// e pelo teste de credenciais.
 async function connect(account) {
   const auth = account.authType === 'oauth'
     ? { user: account.email, accessToken: await accessTokenFor(account) }
@@ -23,7 +24,74 @@ async function connect(account) {
   return client;
 }
 
-// Testa credenciais: conecta e desconecta.
+// ---------------- Pool de conexões ----------------
+// Mantém 1 conexão IMAP MORNA por conta e a reusa entre requests, em vez de fazer
+// login+TLS+logout a cada chamada (economiza 1-3s por request E reduz logins, o que
+// AJUDA contra o "abuse mode" da Microsoft/Google — menos autenticação, não mais).
+// Conexões ociosas são fechadas após POOL_TTL.
+const pool = new Map();     // accountId -> { client, lastUsed }
+const pending = new Map();  // accountId -> Promise<client> (evita corrida ao criar)
+const POOL_TTL = 5 * 60 * 1000; // 5 min ocioso → fecha
+
+async function acquire(account) {
+  const existing = pool.get(account.id);
+  if (existing && existing.client.usable) {
+    existing.lastUsed = Date.now();
+    return existing.client;
+  }
+  if (pending.has(account.id)) return pending.get(account.id);
+
+  const p = (async () => {
+    const client = await connect(account);
+    // Se a conexão cair, remove do pool pra próxima chamada reconectar do zero.
+    const evict = () => {
+      const e = pool.get(account.id);
+      if (e && e.client === client) pool.delete(account.id);
+    };
+    client.on('close', evict);
+    client.on('error', evict);
+    pool.set(account.id, { client, lastUsed: Date.now() });
+    return client;
+  })();
+  pending.set(account.id, p);
+  try { return await p; } finally { pending.delete(account.id); }
+}
+
+// Executa uma operação com o cliente do pool (SEM logout — a conexão fica morna).
+// Em erro, descarta a conexão do pool (pode estar quebrada) e propaga.
+async function withClient(account, fn) {
+  const client = await acquire(account);
+  try {
+    return await fn(client);
+  } catch (e) {
+    const entry = pool.get(account.id);
+    if (entry && entry.client === client) pool.delete(account.id);
+    try { client.close(); } catch (_) {}
+    throw e;
+  }
+}
+
+// Fecha conexões ociosas periodicamente.
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, e] of pool) {
+    if (now - e.lastUsed > POOL_TTL) {
+      pool.delete(id);
+      e.client.logout().catch(() => {});
+    }
+  }
+}, 60 * 1000).unref?.();
+
+// Fecha a conexão de uma conta (usar ao remover/reconectar a conta).
+export async function dropConnection(accountId) {
+  const e = pool.get(accountId);
+  if (e) {
+    pool.delete(accountId);
+    try { await e.client.logout(); } catch (_) {}
+  }
+}
+
+// Testa credenciais: conecta e desconecta (fora do pool).
 export async function testAccount(account) {
   const client = await connect(account);
   await client.logout();
@@ -32,8 +100,7 @@ export async function testAccount(account) {
 
 // Lista as pastas (mailboxes) da conta.
 export async function listFolders(account) {
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const list = await client.list();
     return list.map((m) => ({
       path: m.path,
@@ -41,15 +108,12 @@ export async function listFolders(account) {
       specialUse: m.specialUse || null,
       subscribed: !!m.subscribed,
     }));
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 // Lista mensagens (cabeçalhos) de uma pasta, das mais recentes p/ trás.
 export async function listMessages(account, { folder = 'INBOX', limit = 25, offset = 0 } = {}) {
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       const total = client.mailbox.exists;
@@ -72,17 +136,14 @@ export async function listMessages(account, { folder = 'INBOX', limit = 25, offs
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 // Busca no servidor (IMAP SEARCH) por assunto/remetente/destinatário/corpo.
 export async function searchMessages(account, { folder = 'INBOX', query, limit = 40 } = {}) {
   const q = String(query || '').trim();
   if (!q) return { total: 0, messages: [] };
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       // OR entre os campos; o servidor faz o match (inclui corpo).
@@ -104,15 +165,12 @@ export async function searchMessages(account, { folder = 'INBOX', query, limit =
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 // Lê o corpo completo de uma mensagem por UID.
 export async function getMessage(account, { folder = 'INBOX', uid }) {
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       const { content } = await client.download(uid, undefined, { uid: true });
@@ -137,15 +195,12 @@ export async function getMessage(account, { folder = 'INBOX', uid }) {
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 // Baixa um anexo específico (por índice) de uma mensagem.
 export async function getAttachment(account, { folder = 'INBOX', uid, index }) {
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       const { content } = await client.download(uid, undefined, { uid: true });
@@ -156,15 +211,12 @@ export async function getAttachment(account, { folder = 'INBOX', uid, index }) {
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 // Marca/desmarca flags (\\Seen, \\Flagged) e arquiva/deleta.
 export async function setFlags(account, { folder = 'INBOX', uid, add = [], remove = [] }) {
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       if (add.length) await client.messageFlagsAdd({ uid }, add, { uid: true });
@@ -173,15 +225,12 @@ export async function setFlags(account, { folder = 'INBOX', uid, add = [], remov
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 // Move mensagem para outra pasta (arquivar/lixeira).
 export async function moveMessage(account, { folder = 'INBOX', uid, target }) {
-  const client = await connect(account);
-  try {
+  return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       await client.messageMove({ uid }, target, { uid: true });
@@ -189,9 +238,7 @@ export async function moveMessage(account, { folder = 'INBOX', uid, target }) {
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 function formatEnvelope(msg, account, folder) {

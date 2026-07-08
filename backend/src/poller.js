@@ -8,6 +8,7 @@ import { listAccounts, getAccount, listPushTokens } from './db.js';
 import { listMessages } from './imap.js';
 import { sendPush, pushEnabled } from './push.js';
 import { markHealthy, markUnhealthy } from './health.js';
+import { isWatched } from './idle.js';
 
 const INTERVAL_MS = 180000;      // 3 min entre ciclos
 const MAX_BACKOFF = 10;          // pula no máx 10 ciclos (~30 min) uma conta problemática
@@ -40,6 +41,8 @@ async function tick() {
   running = true;
   try {
     for (const a of listAccounts()) {
+      // Conta já observada em tempo real pelo IDLE: o poller não duplica o push dela.
+      if (isWatched(a.id)) { lastSeenUid.delete(a.id); continue; }
       // Backoff: conta que vem falhando é pulada por alguns ciclos.
       const skip = skipCycles.get(a.id) || 0;
       if (skip > 0) { skipCycles.set(a.id, skip - 1); continue; }

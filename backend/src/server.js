@@ -10,6 +10,7 @@ import accountsRoutes from './routes/accounts.js';
 import messagesRoutes from './routes/messages.js';
 import oauthRoutes from './routes/oauth.js';
 import { startPoller } from './poller.js';
+import { startIdle } from './idle.js';
 
 assertConfig();
 seedFromEnv();
@@ -67,7 +68,8 @@ await app.register(fastifyStatic, {
 try {
   await app.listen({ port: config.port, host: config.host });
   console.log(`[mail-backend] rodando em http://${config.host}:${config.port}`);
-  startPoller(); // push de novos emails (se FCM configurado)
+  startIdle();   // push instantâneo via IMAP IDLE (se FCM configurado)
+  startPoller(); // fallback/rede de segurança (checa a cada 3 min)
 } catch (err) {
   app.log.error(err);
   process.exit(1);

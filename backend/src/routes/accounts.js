@@ -1,4 +1,6 @@
 import { listAccounts, getAccount, upsertAccount, deleteAccount } from '../db.js';
+import { dropConnection } from '../imap.js';
+import { kickIdle, stopWatcher } from '../idle.js';
 import { listProviders, detectProvider } from '../providers.js';
 import { testAccount } from '../imap.js';
 import { verifySmtp } from '../smtp.js';
@@ -30,6 +32,7 @@ export default async function accountsRoutes(app) {
     try {
       const account = upsertAccount(req.body);
       clearHealth(account.id); // conta (re)adicionada → zera status de desconectada
+      kickIdle();              // começa a observar a conta nova em tempo real
       return account;
     } catch (e) {
       return reply.code(400).send({ error: e.message });
@@ -67,6 +70,8 @@ export default async function accountsRoutes(app) {
     const ok = deleteAccount(id);
     if (!ok) return reply.code(404).send({ error: 'conta não encontrada' });
     clearHealth(id);
+    stopWatcher(id);                    // para o IDLE da conta removida
+    dropConnection(id).catch(() => {}); // fecha a conexão morna da conta removida
     return { ok: true };
   });
 

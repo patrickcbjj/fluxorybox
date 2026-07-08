@@ -44,6 +44,9 @@ mobile/android/**/GeneratedPluginRegistrant.*
 mobile/ios/Pods/
 mobile/ios/.symlinks/
 
+# ===== graphify (grafo de conhecimento gerado) =====
+graphify-out/
+
 # ===== Diversos =====
 .DS_Store
 Thumbs.db

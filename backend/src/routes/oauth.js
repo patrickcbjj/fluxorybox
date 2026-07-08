@@ -4,6 +4,8 @@ import { OAUTH, isConfigured, buildAuthUrl, exchangeCode, profileFromIdToken, fe
 import { upsertOAuthAccount } from '../db.js';
 import { verifySession } from '../auth.js';
 import { clearHealth } from '../health.js';
+import { kickIdle, stopWatcher } from '../idle.js';
+import { dropConnection } from '../imap.js';
 
 // Guarda os "state" pendentes (protege contra CSRF e amarra provider). Expira em 10 min.
 const states = new Map();
@@ -94,7 +96,12 @@ export default async function oauthRoutes(app) {
         imap: p.imap,
         smtp: p.smtp,
       });
-      if (saved?.id != null) clearHealth(saved.id); // reconectou → zera status
+      if (saved?.id != null) {
+        clearHealth(saved.id);          // reconectou → zera status
+        stopWatcher(saved.id);          // derruba o IDLE antigo (token trocado)...
+        dropConnection(saved.id).catch(() => {}); // ...e a conexão morna antiga
+        kickIdle();                     // religa o IDLE com o token novo
+      }
       const email = profile.email;
       return reply.type('text/html').send(page('Conta adicionada!',
         `${email} conectada via ${p.name}.`, fromApp));

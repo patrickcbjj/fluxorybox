@@ -8,6 +8,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
+import 'cache.dart';
 import 'updater.dart';
 import 'notifications.dart';
 
@@ -17,6 +18,11 @@ void main() async {
   try { await Notifications.init(); } catch (_) {/* segue sem push se o Firebase falhar */}
   runApp(const FluxoryBoxApp());
 }
+
+// Navegação global (usada pra abrir o email tocado numa notificação).
+final navigatorKey = GlobalKey<NavigatorState>();
+// Últimas contas conhecidas (pra montar a tela do email vindo da notificação).
+List gAccounts = [];
 
 const accent = Color(0xFF6D7CFF);
 const bg = Color(0xFF0D0F14);
@@ -76,6 +82,7 @@ class FluxoryBoxApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'FluxoryBox',
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -254,10 +261,31 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     _boot();
     _poll = Timer.periodic(const Duration(seconds: 30), (_) => _refreshSilent());
     // Checa atualização do app e pede permissão de notificação após montar a tela.
+    // Abre o email específico ao tocar numa notificação (foreground/background/frio).
+    Notifications.setMessageHandler(_openFromNotification);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Updater.check(context);
       Notifications.requestAndRegister();
     });
+  }
+
+  // Navega direto pro email da notificação. data: {accountId, uid, folder, accountEmail}.
+  void _openFromNotification(Map<String, dynamic> data) {
+    final accountId = int.tryParse('${data['accountId']}');
+    final uid = int.tryParse('${data['uid']}');
+    if (accountId == null || uid == null) return;
+    final summary = {
+      'accountId': accountId,
+      'uid': uid,
+      'folder': (data['folder']?.toString().isNotEmpty == true) ? data['folder'].toString() : 'INBOX',
+      'accountEmail': data['accountEmail']?.toString() ?? '',
+    };
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    final accounts = gAccounts.isNotEmpty ? gAccounts : _accounts;
+    nav.push(MaterialPageRoute(
+      builder: (_) => MessageScreen(summary: summary, accounts: accounts),
+    )).then((_) { if (mounted) _refreshSilent(); });
   }
 
   @override
@@ -274,10 +302,22 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _boot() async {
+    // 1) Mostra INSTANTÂNEO o que já está em cache (sem esperar a rede, sem skeleton).
+    final cachedAccounts = await Cache.loadAccounts();
+    final cachedList = await Cache.loadList(_view, _folder);
+    if (mounted && (cachedAccounts.isNotEmpty || cachedList.isNotEmpty)) {
+      setState(() {
+        if (cachedAccounts.isNotEmpty) { _accounts = cachedAccounts; gAccounts = cachedAccounts; }
+        if (cachedList.isNotEmpty) { _messages = cachedList; _loading = false; }
+      });
+    }
+    // 2) Sincroniza por trás e atualiza a tela quando chegar.
     try {
       _accounts = await Api.accounts();
+      gAccounts = _accounts;
+      Cache.saveAccounts(_accounts);
     } catch (_) {}
-    await _load(reset: true);
+    await _load(reset: true, silent: cachedList.isNotEmpty);
   }
 
   Map? get _account => _view is int
@@ -305,7 +345,10 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
       _view = v; _folder = 'INBOX'; _offset = 0; _unifiedLimit = 40; _folders = [];
       _searching = false; _searchOpen = false; _query = ''; _searchCtrl.clear();
     });
-    await _load(reset: true);
+    // Mostra o cache desta view na hora; sincroniza atrás sem skeleton se houver cache.
+    final cached = await Cache.loadList(v, 'INBOX');
+    if (mounted && cached.isNotEmpty) setState(() { _messages = cached; _loading = false; });
+    await _load(reset: true, silent: cached.isNotEmpty);
     if (v is int) {
       try {
         final f = await Api.folders(v);
@@ -314,8 +357,10 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _load({bool reset = true}) async {
-    if (reset) setState(() { _loading = true; _error = null; _needsReconnect = false; _offset = 0; });
+  // silent: já há cache na tela — não mostra skeleton nem substitui a lista por erro.
+  Future<void> _load({bool reset = true, bool silent = false}) async {
+    if (reset && !silent) setState(() { _loading = true; _error = null; _needsReconnect = false; _offset = 0; });
+    else if (reset) _offset = 0;
     try {
       if (_view == 'unified') {
         final data = await Api.inbox(limit: _unifiedLimit);
@@ -325,9 +370,14 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         final list = (data['messages'] ?? []) as List;
         _messages = (reset || _offset == 0) ? list : [..._messages, ...list];
       }
+      _error = null; _needsReconnect = false;
+      if (!_searching) Cache.saveList(_view, _folder, _messages); // atualiza o cache
     } catch (e) {
-      _error = e.toString();
-      _needsReconnect = e is ApiException && e.needsReconnect;
+      // Se já temos cache na tela, mantém a lista e só ignora o erro silenciosamente.
+      if (!(silent && _messages.isNotEmpty)) {
+        _error = e.toString();
+        _needsReconnect = e is ApiException && e.needsReconnect;
+      }
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -412,7 +462,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     if (_searching || !mounted) return;
     if (visible) setState(() => _refreshing = true);
     // Atualiza o estado de conexão das contas (aviso de desconectada) sem spinner.
-    try { _accounts = await Api.accounts(); } catch (_) {}
+    try { _accounts = await Api.accounts(); gAccounts = _accounts; Cache.saveAccounts(_accounts); } catch (_) {}
     try {
       if (_view == 'unified') {
         final data = await Api.inbox(limit: _unifiedLimit);
@@ -422,6 +472,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         final data = await Api.accountMessages(_view as int, folder: _folder, limit: span, offset: 0);
         _messages = data['messages'] ?? [];
       }
+      Cache.saveList(_view, _folder, _messages); // mantém o cache fresco
     } catch (_) {}
     if (mounted) setState(() => _refreshing = false);
   }
@@ -545,6 +596,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                   }
                 } else if (v == 'logout') {
                   await Notifications.unregister();
+                  await Cache.clear();
                   await Api.logout();
                   if (context.mounted) {
                     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));

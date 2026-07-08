@@ -4,6 +4,7 @@ import { sendMail } from '../smtp.js';
 import { config } from '../config.js';
 import { classifyError } from '../errors.js';
 import { markHealthy, markUnhealthy } from '../health.js';
+import { kickIdle } from '../idle.js';
 
 export default async function messagesRoutes(app) {
   // Registra/remove o token FCM deste dispositivo (push de email novo).
@@ -11,6 +12,7 @@ export default async function messagesRoutes(app) {
     const { token } = req.body || {};
     if (!token) return reply.code(400).send({ error: 'token é obrigatório' });
     addPushToken(token);
+    kickIdle(); // primeiro device registrado → liga o IDLE agora
     return { ok: true };
   });
   app.post('/api/push/unregister', async (req, reply) => {
