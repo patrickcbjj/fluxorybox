@@ -1,6 +1,6 @@
 {
-  "versionCode": 2015,
-  "versionName": "1.1.12",
-  "apkUrl": "/FluxoryBox-1.1.12-beta.apk",
-  "notes": "O botão de tema claro/escuro agora fica na tela de emails (ícone de sol/lua ao lado da busca) e troca na hora, sem travar. Removido o toggle das Configurações."
+  "versionCode": 2016,
+  "versionName": "1.1.13",
+  "apkUrl": "/FluxoryBox-1.1.13-beta.apk",
+  "notes": "Ações rápidas na lista: arraste um email para o lado (→ Arquivar, ← Lixeira, com desfazer). Segure um email para selecionar vários e agir em lote (marcar lida/não-lida, favoritar, arquivar, excluir). E 'Marcar tudo como lido' no menu."
 }

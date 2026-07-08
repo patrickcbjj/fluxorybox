@@ -318,6 +318,11 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   String _query = '';
   final _searchCtrl = TextEditingController();
 
+  // Seleção múltipla (long-press pra entrar; ações em lote no header de seleção).
+  final Set<String> _selected = {};
+  bool get _selectMode => _selected.isNotEmpty;
+  String _msgKey(Map m) => '${m['accountId']}_${m['uid']}_${m['folder']}';
+
   Timer? _poll;
 
   @override
@@ -487,7 +492,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   // Ordem das "abas" pro gesto de arrastar: Todas, depois cada conta.
   List get _viewOrder => ['unified', ..._accounts.cast<Map>().map((a) => a['id'])];
   void _swipeAccount(int dir) {
-    if (_searching) return;
+    if (_searching || _selectMode) return;
     final order = _viewOrder;
     final idx = order.indexWhere((v) => v == _view);
     if (idx < 0) return;
@@ -507,6 +512,100 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
 
   void _snack(String m) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  // ---------------- Seleção múltipla + ações em lote ----------------
+  void _toggleSelect(Map m) {
+    final k = _msgKey(m);
+    setState(() { _selected.contains(k) ? _selected.remove(k) : _selected.add(k); });
+  }
+
+  void _clearSelection() => setState(_selected.clear);
+
+  void _selectAllVisible() {
+    setState(() {
+      for (final m in _messages) { _selected.add(_msgKey(m as Map)); }
+    });
+  }
+
+  List<Map> get _selectedMessages =>
+      _messages.cast<Map>().where((m) => _selected.contains(_msgKey(m))).toList();
+
+  // Marca lido/não-lido em lote (add/remove \\Seen).
+  Future<void> _batchSeen(bool seen) async {
+    final sel = _selectedMessages;
+    _clearSelection();
+    for (final m in sel) {
+      try {
+        await Api.setFlags(m['accountId'], m['uid'], m['folder'],
+            add: seen ? ['\\Seen'] : [], remove: seen ? [] : ['\\Seen']);
+        m['seen'] = seen;
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
+    Cache.saveList(_view, _cacheFolder, _messages);
+  }
+
+  // Favorita/desfavorita em lote.
+  Future<void> _batchStar(bool on) async {
+    final sel = _selectedMessages;
+    _clearSelection();
+    for (final m in sel) {
+      try {
+        await Api.setFlags(m['accountId'], m['uid'], m['folder'],
+            add: on ? ['\\Flagged'] : [], remove: on ? [] : ['\\Flagged']);
+        m['flagged'] = on;
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
+    Cache.saveList(_view, _cacheFolder, _messages);
+  }
+
+  // Move em lote (Arquivo/Lixeira) e tira da lista.
+  Future<void> _batchMove(String target, String label) async {
+    final sel = _selectedMessages;
+    final keys = sel.map(_msgKey).toSet();
+    _clearSelection();
+    int ok = 0;
+    for (final m in sel) {
+      try { await Api.move(m['accountId'], m['uid'], m['folder'], target); ok++; } catch (_) {}
+    }
+    setState(() => _messages.removeWhere((m) => keys.contains(_msgKey(m as Map))));
+    Cache.saveList(_view, _cacheFolder, _messages);
+    _snack('$ok movido(s) para $label');
+  }
+
+  // Marca TODAS as mensagens carregadas como lidas.
+  Future<void> _markAllRead() async {
+    final unread = _messages.cast<Map>().where((m) => m['seen'] != true).toList();
+    if (unread.isEmpty) { _snack('Nada para marcar.'); return; }
+    setState(() { for (final m in unread) { m['seen'] = true; } });
+    Cache.saveList(_view, _cacheFolder, _messages);
+    for (final m in unread) {
+      try { await Api.setFlags(m['accountId'], m['uid'], m['folder'], add: ['\\Seen']); } catch (_) {}
+    }
+    _snack('${unread.length} marcada(s) como lida(s)');
+  }
+
+  // Swipe numa mensagem: move pra Arquivo/Lixeira (com desfazer).
+  Future<bool> _swipeMove(Map m, String target, String label) async {
+    try {
+      await Api.move(m['accountId'], m['uid'], m['folder'], target);
+      Cache.saveList(_view, _cacheFolder, _messages);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Movido para $label'),
+          action: SnackBarAction(label: 'Desfazer', onPressed: () async {
+            try { await Api.move(m['accountId'], m['uid'], target, m['folder']); } catch (_) {}
+            _refreshSilent();
+          }),
+        ));
+      }
+      return true;
+    } catch (e) {
+      _snack('Falha ao mover: $e');
+      return false;
+    }
   }
 
   Future<void> _reconnect(Map a) async {
@@ -641,7 +740,14 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_selectMode && !_searchOpen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_selectMode) _clearSelection();
+        else if (_searchOpen) _clearSearch();
+      },
+      child: Scaffold(
       backgroundColor: C.bg,
       floatingActionButton: SizedBox(
         width: 58, height: 58,
@@ -675,6 +781,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
           ),
         ]),
       ),
+      ),
     );
   }
 
@@ -693,6 +800,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   Widget _header() {
+    if (_selectMode) return _selectionHeader();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
       child: _searchOpen
@@ -742,6 +850,32 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   void _toggleTheme() {
     ThemeController.set(!ThemeController.isDark.value);
     setState(() {});
+  }
+
+  // Header do modo seleção: contagem + ações em lote.
+  Widget _selectionHeader() {
+    final n = _selected.length;
+    return Container(
+      color: C.surface2,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      child: Row(children: [
+        IconButton(icon: const Icon(Icons.close_rounded), tooltip: 'Cancelar', onPressed: _clearSelection),
+        Text('$n', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: C.text)),
+        const Spacer(),
+        IconButton(icon: const Icon(Icons.mark_email_read_outlined), tooltip: 'Marcar lida', onPressed: () => _batchSeen(true)),
+        IconButton(icon: const Icon(Icons.mark_email_unread_outlined), tooltip: 'Marcar não lida', onPressed: () => _batchSeen(false)),
+        IconButton(icon: const Icon(Icons.star_outline_rounded), tooltip: 'Favoritar', onPressed: () => _batchStar(true)),
+        IconButton(icon: const Icon(Icons.archive_outlined), tooltip: 'Arquivar', onPressed: () => _batchMove('Archive', 'Arquivo')),
+        IconButton(icon: const Icon(Icons.delete_outline_rounded), tooltip: 'Lixeira', onPressed: () => _batchMove('Trash', 'Lixeira')),
+        PopupMenuButton<String>(
+          onSelected: (v) { if (v == 'all') _selectAllVisible(); if (v == 'unstar') _batchStar(false); },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'all', child: Text('Selecionar todas')),
+            PopupMenuItem(value: 'unstar', child: Text('Desfavoritar')),
+          ],
+        ),
+      ]),
+    );
   }
 
   // Chips de conta (Todas + cada conta) — como as abas do print.
@@ -861,6 +995,19 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(color: C.line, borderRadius: BorderRadius.circular(2))),
+          ListTile(
+            leading: Icon(Icons.mark_email_read_outlined, color: accent),
+            title: const Text('Marcar tudo como lido'),
+            onTap: () { Navigator.pop(context); _markAllRead(); },
+          ),
+          ListTile(
+            leading: Icon(Icons.checklist_rounded, color: accent),
+            title: const Text('Selecionar mensagens'),
+            onTap: () {
+              Navigator.pop(context);
+              if (_messages.isNotEmpty) _toggleSelect(_messages.first as Map);
+            },
+          ),
           if (_view is int)
             ListTile(
               leading: Icon(Icons.folder_outlined, color: accent),
@@ -970,14 +1117,49 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
               ),
             );
           }
-          return _MessageTile(
-            msg: _messages[i],
+          final m = _messages[i] as Map;
+          final tile = _MessageTile(
+            msg: m,
             showAccount: _view == 'unified',
-            onTap: () => Navigator.push(context, MaterialPageRoute(
-                builder: (_) => MessageScreen(summary: _messages[i], accounts: _accounts))).then((_) => _refreshSilent()),
+            selected: _selected.contains(_msgKey(m)),
+            selectMode: _selectMode,
+            onLongPress: () => _toggleSelect(m),
+            onTap: () {
+              if (_selectMode) { _toggleSelect(m); return; }
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => MessageScreen(summary: m, accounts: _accounts))).then((_) => _refreshSilent());
+            },
+          );
+          // Sem swipe no modo seleção. Arrastar: → Arquivar, ← Lixeira.
+          if (_selectMode) return tile;
+          return Dismissible(
+            key: ValueKey(_msgKey(m)),
+            background: _swipeBg(Icons.archive_rounded, 'Arquivar', Alignment.centerLeft, const Color(0xFF3A7BD5)),
+            secondaryBackground: _swipeBg(Icons.delete_rounded, 'Lixeira', Alignment.centerRight, const Color(0xFFE05260)),
+            confirmDismiss: (dir) => dir == DismissDirection.startToEnd
+                ? _swipeMove(m, 'Archive', 'Arquivo')
+                : _swipeMove(m, 'Trash', 'Lixeira'),
+            onDismissed: (_) => setState(() => _messages.removeWhere((x) => _msgKey(x as Map) == _msgKey(m))),
+            child: tile,
           );
         },
       ),
+    );
+  }
+
+  Widget _swipeBg(IconData icon, String label, Alignment align, Color color) {
+    final left = align == Alignment.centerLeft;
+    return Container(
+      color: color,
+      alignment: align,
+      padding: const EdgeInsets.symmetric(horizontal: 22),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (left) Icon(icon, color: Colors.white, size: 24),
+        if (left) const SizedBox(width: 8),
+        Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        if (!left) const SizedBox(width: 8),
+        if (!left) Icon(icon, color: Colors.white, size: 24),
+      ]),
     );
   }
 
@@ -996,7 +1178,11 @@ class _MessageTile extends StatelessWidget {
   final Map msg;
   final bool showAccount;
   final VoidCallback onTap;
-  const _MessageTile({required this.msg, required this.showAccount, required this.onTap});
+  final VoidCallback? onLongPress;
+  final bool selected;
+  final bool selectMode;
+  const _MessageTile({required this.msg, required this.showAccount, required this.onTap,
+      this.onLongPress, this.selected = false, this.selectMode = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1007,14 +1193,23 @@ class _MessageTile extends StatelessWidget {
     final flagged = msg['flagged'] == true;
     return InkWell(
       onTap: onTap,
-      child: Padding(
+      onLongPress: onLongPress,
+      child: Container(
+        color: selected ? accent.withValues(alpha: 0.14) : Colors.transparent,
         padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Ponto de não-lido à esquerda (some quando lido).
-          Container(
-            width: 8, height: 8, margin: const EdgeInsets.only(top: 6, right: 8),
-            decoration: BoxDecoration(shape: BoxShape.circle, color: seen ? Colors.transparent : accent),
-          ),
+          // No modo seleção: checkbox no lugar do ponto de não-lido.
+          if (selectMode)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, right: 8),
+              child: Icon(selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  size: 22, color: selected ? accent : C.muted),
+            )
+          else
+            Container(
+              width: 8, height: 8, margin: const EdgeInsets.only(top: 6, right: 8),
+              decoration: BoxDecoration(shape: BoxShape.circle, color: seen ? Colors.transparent : accent),
+            ),
           SenderAvatar(name: f['name']?.toString(), address: f['address']?.toString()),
           const SizedBox(width: 12),
           Expanded(
