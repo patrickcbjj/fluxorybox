@@ -1,4 +1,4 @@
-import { listAccounts, getAccount, upsertAccount, deleteAccount } from '../db.js';
+import { listAccounts, getAccount, upsertAccount, deleteAccount, setNotify } from '../db.js';
 import { dropConnection } from '../imap.js';
 import { kickIdle, stopWatcher } from '../idle.js';
 import { listProviders, detectProvider } from '../providers.js';
@@ -62,6 +62,15 @@ export default async function accountsRoutes(app) {
     try { await verifySmtp(account); result.smtp = true; }
     catch (e) { result.smtpError = e.message; }
     return result;
+  });
+
+  // Liga/desliga a notificação (push) de uma conta.
+  app.post('/api/accounts/:id/notify', async (req, reply) => {
+    const id = Number(req.params.id);
+    const notify = req.body?.notify !== false;
+    const ok = setNotify(id, notify);
+    if (!ok) return reply.code(404).send({ error: 'conta não encontrada' });
+    return { ok: true, notify };
   });
 
   // Remove conta.

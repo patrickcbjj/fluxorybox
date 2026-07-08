@@ -28,6 +28,9 @@ function senderName(env) {
 async function onNewMail(w, client, account) {
   const tokens = listPushTokens();
   if (!tokens.length) return; // ninguém pra notificar
+  // Respeita o toggle "notificar desta conta" (lê fresco do banco).
+  const fresh = getAccount(w.id);
+  if (fresh && fresh.notify === false) return;
   const from = w.maxUid + 1;
   const novos = [];
   for await (const msg of client.fetch({ uid: `${from}:*` },

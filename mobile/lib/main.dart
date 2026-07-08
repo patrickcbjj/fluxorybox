@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'api.dart';
 import 'cache.dart';
 import 'updater.dart';
@@ -15,6 +17,7 @@ import 'notifications.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Api.load();
+  await ThemeController.load();
   try { await Notifications.init(); } catch (_) {/* segue sem push se o Firebase falhar */}
   runApp(const FluxoryBoxApp());
 }
@@ -24,12 +27,47 @@ final navigatorKey = GlobalKey<NavigatorState>();
 // Últimas contas conhecidas (pra montar a tela do email vindo da notificação).
 List gAccounts = [];
 
+// Cor de destaque (marca) — igual nos dois temas.
 const accent = Color(0xFF6D7CFF);
-const bg = Color(0xFF0D0F14);
-const surface = Color(0xFF14171E);
-const surface2 = Color(0xFF1B1F28);
-const line = Color(0xFF262B36);
-const muted = Color(0xFF7D8598);
+
+// Paleta de cores por tema. `C` resolve pra clara ou escura conforme o toggle.
+class Palette {
+  final Color bg, surface, surface2, line, muted, text;
+  const Palette({
+    required this.bg, required this.surface, required this.surface2,
+    required this.line, required this.muted, required this.text,
+  });
+}
+
+const _darkPalette = Palette(
+  bg: Color(0xFF0D0F14), surface: Color(0xFF14171E), surface2: Color(0xFF1B1F28),
+  line: Color(0xFF262B36), muted: Color(0xFF7D8598), text: Color(0xFFECEEF3),
+);
+const _lightPalette = Palette(
+  bg: Color(0xFFF7F8FA), surface: Color(0xFFFFFFFF), surface2: Color(0xFFEFF1F5),
+  line: Color(0xFFE6E9EF), muted: Color(0xFF8A93A6), text: Color(0xFF171A21),
+);
+
+// Controlador de tema (persistente em SharedPreferences). Trocar reconstrói o app.
+class ThemeController {
+  static final ValueNotifier<bool> isDark = ValueNotifier<bool>(true);
+  static Future<void> load() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      isDark.value = p.getBool('dark_mode') ?? true;
+    } catch (_) {}
+  }
+  static Future<void> set(bool dark) async {
+    isDark.value = dark;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool('dark_mode', dark);
+    } catch (_) {}
+  }
+}
+
+// Paleta ativa. Usada em todo o app como `C.bg`, `C.surface`, etc.
+Palette get C => ThemeController.isDark.value ? _darkPalette : _lightPalette;
 
 // Rótulos de pastas por special-use (espelha a web).
 const folderLabels = {
@@ -78,20 +116,44 @@ String fmtDate(dynamic d) {
 
 class FluxoryBoxApp extends StatelessWidget {
   const FluxoryBoxApp({super.key});
+
+  ThemeData _theme(bool dark) {
+    final b = dark ? Brightness.dark : Brightness.light;
+    final p = dark ? _darkPalette : _lightPalette;
+    return ThemeData(
+      useMaterial3: true,
+      brightness: b,
+      colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: b).copyWith(
+        surface: p.surface,
+        onSurface: p.text,
+      ),
+      scaffoldBackgroundColor: p.bg,
+      canvasColor: p.surface,
+      dividerColor: p.line,
+      dialogTheme: DialogThemeData(backgroundColor: p.surface),
+      appBarTheme: AppBarTheme(
+        backgroundColor: p.bg,
+        foregroundColor: p.text,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(backgroundColor: p.surface),
+      // A cor padrão de texto vem do brightness (branco no escuro, escuro no claro).
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'FluxoryBox',
-      navigatorKey: navigatorKey,
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark),
-        scaffoldBackgroundColor: bg,
-        dialogTheme: const DialogThemeData(backgroundColor: surface),
+    // Reconstrói o app inteiro ao trocar o tema (claro/escuro).
+    return ValueListenableBuilder<bool>(
+      valueListenable: ThemeController.isDark,
+      builder: (_, dark, __) => MaterialApp(
+        title: 'FluxoryBox',
+        navigatorKey: navigatorKey,
+        debugShowCheckedModeBanner: false,
+        theme: _theme(dark),
+        home: Api.configured ? const InboxScreen() : const SettingsScreen(),
       ),
-      home: Api.configured ? const InboxScreen() : const SettingsScreen(),
     );
   }
 }
@@ -195,7 +257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text('FluxoryBox',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
             const SizedBox(height: 4),
-            const Text('Entre com seu usuário e senha', style: TextStyle(color: muted)),
+            Text('Entre com seu usuário e senha', style: TextStyle(color: C.muted)),
             const SizedBox(height: 28),
             TextField(controller: _url, decoration: _dec('Servidor')),
             const SizedBox(height: 14),
@@ -427,7 +489,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         title: const Text('Reconectar conta'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('Digite a senha de app novamente para reconectar ${a['email']}.',
-              style: const TextStyle(fontSize: 13, color: muted)),
+              style: TextStyle(fontSize: 13, color: C.muted)),
           const SizedBox(height: 12),
           TextField(controller: ctrl, obscureText: true, autofocus: true,
               decoration: const InputDecoration(labelText: 'Senha de app', border: OutlineInputBorder())),
@@ -501,7 +563,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     final items = _folders.isNotEmpty ? _folders : [{'path': 'INBOX', 'name': 'INBOX'}];
     final chosen = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: surface,
+      backgroundColor: C.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (_) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -513,7 +575,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
             final active = f['path'] == _folder;
             return ListTile(
               leading: Icon(active ? Icons.folder_rounded : Icons.folder_outlined,
-                  color: active ? accent : muted),
+                  color: active ? accent : C.muted),
               title: Text(label, style: TextStyle(color: active ? accent : null)),
               onTap: () => Navigator.pop(context, f['path']?.toString()),
             );
@@ -552,15 +614,18 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_contextTitle, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                  Text(_contextTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
                   if (_view != 'unified')
                     GestureDetector(
                       onTap: _openFolders,
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(_folderLabel, style: const TextStyle(fontSize: 12, color: muted)),
-                        const Icon(Icons.arrow_drop_down, size: 18, color: muted),
+                        Text(_folderLabel, style: TextStyle(fontSize: 12, color: C.muted)),
+                        Icon(Icons.arrow_drop_down, size: 18, color: C.muted),
                       ]),
-                    ),
+                    )
+                  else
+                    Text('Caixa de entrada', style: TextStyle(fontSize: 12, color: C.muted)),
                 ],
               ),
         actions: [
@@ -579,35 +644,10 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
               },
             ),
             IconButton(
-              icon: const Icon(Icons.manage_accounts_rounded),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
-                  .then((_) async { try { _accounts = await Api.accounts(); } catch (_) {} if (mounted) setState(() {}); }),
-            ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded),
-              onSelected: (v) async {
-                if (v == 'update') {
-                  Updater.check(context, auto: false);
-                } else if (v == 'notif') {
-                  final ok = await Notifications.requestAndRegister();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(ok ? 'Notificações ativadas.' : 'Permissão de notificação negada.')));
-                  }
-                } else if (v == 'logout') {
-                  await Notifications.unregister();
-                  await Cache.clear();
-                  await Api.logout();
-                  if (context.mounted) {
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-                  }
-                }
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'notif', child: Row(children: [Icon(Icons.notifications_active_rounded, size: 20), SizedBox(width: 10), Text('Ativar notificações')])),
-                PopupMenuItem(value: 'update', child: Row(children: [Icon(Icons.system_update_rounded, size: 20), SizedBox(width: 10), Text('Buscar atualizações')])),
-                PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout_rounded, size: 20), SizedBox(width: 10), Text('Sair')])),
-              ],
+              icon: const Icon(Icons.settings_rounded),
+              tooltip: 'Configurações',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesScreen()))
+                  .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); }),
             ),
           ],
         ],
@@ -643,9 +683,9 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   Widget _accountRail() {
     return Container(
       height: 84,
-      decoration: const BoxDecoration(
-        color: surface,
-        border: Border(bottom: BorderSide(color: line)),
+      decoration: BoxDecoration(
+        color: C.surface,
+        border: Border(bottom: BorderSide(color: C.line)),
       ),
       child: ListView(
         scrollDirection: Axis.horizontal,
@@ -654,7 +694,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
           _railItem(
             selected: _view == 'unified',
             onTap: () => _selectView('unified'),
-            child: const CircleAvatar(radius: 20, backgroundColor: surface2, child: Icon(Icons.all_inbox_rounded, size: 20, color: accent)),
+            child: CircleAvatar(radius: 20, backgroundColor: C.surface2, child: Icon(Icons.all_inbox_rounded, size: 20, color: accent)),
             label: 'Todas',
           ),
           ..._accounts.cast<Map>().map((a) => _railItem(
@@ -669,7 +709,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
             selected: false,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
                 .then((_) async { try { _accounts = await Api.accounts(); } catch (_) {} if (mounted) setState(() {}); }),
-            child: const CircleAvatar(radius: 20, backgroundColor: surface2, child: Icon(Icons.add_rounded, size: 22, color: muted)),
+            child: CircleAvatar(radius: 20, backgroundColor: C.surface2, child: Icon(Icons.add_rounded, size: 22, color: C.muted)),
             label: 'Adicionar',
           ),
         ],
@@ -702,7 +742,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                   width: 16, height: 16,
                   decoration: BoxDecoration(
                     color: const Color(0xFFFF6B7A), shape: BoxShape.circle,
-                    border: Border.all(color: surface, width: 2),
+                    border: Border.all(color: C.surface, width: 2),
                   ),
                   child: const Icon(Icons.priority_high_rounded, size: 10, color: Colors.white),
                 ),
@@ -710,7 +750,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
           ]),
           const SizedBox(height: 4),
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 10.5, color: selected ? Colors.white : muted)),
+              style: TextStyle(fontSize: 10.5, color: selected ? C.text : C.muted)),
         ]),
       ),
     );
@@ -735,7 +775,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('$name foi desconectada', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFFFF6B7A))),
-          Text(msg, style: const TextStyle(fontSize: 11.5, color: Colors.white70)),
+          Text(msg, style: TextStyle(fontSize: 11.5, color: C.text)),
         ])),
         const SizedBox(width: 8),
         FilledButton(
@@ -754,11 +794,11 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   Widget _searchBanner() {
     return Container(
       width: double.infinity,
-      color: surface2,
+      color: C.surface2,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(children: [
         Expanded(child: Text('Resultados no servidor para "$_query"',
-            style: const TextStyle(fontSize: 12.5, color: muted), overflow: TextOverflow.ellipsis)),
+            style: TextStyle(fontSize: 12.5, color: C.muted), overflow: TextOverflow.ellipsis)),
         TextButton(onPressed: _clearSearch, child: const Text('Limpar')),
       ]),
     );
@@ -777,14 +817,14 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     }
     if (_messages.isEmpty) {
       return Center(child: Text(_searching ? 'Nenhum resultado.' : 'Sem mensagens por aqui.',
-          style: const TextStyle(color: muted)));
+          style: TextStyle(color: C.muted)));
     }
     final showLoadMore = !_searching;
     return RefreshIndicator(
       onRefresh: () => _refreshSilent(),
       child: ListView.separated(
         itemCount: _messages.length + (showLoadMore ? 1 : 0),
-        separatorBuilder: (_, __) => const Divider(height: 1, color: line),
+        separatorBuilder: (_, __) => Divider(height: 1, color: C.line),
         itemBuilder: (_, i) {
           if (i >= _messages.length) {
             return Padding(
@@ -831,29 +871,210 @@ class _MessageTile extends StatelessWidget {
     final from = (f['name']?.toString().isNotEmpty == true ? f['name'] : f['address']) ?? '(desconhecido)';
     final seen = msg['seen'] == true;
     final flagged = msg['flagged'] == true;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      leading: SenderAvatar(name: f['name']?.toString(), address: f['address']?.toString()),
-      title: Row(children: [
-        Expanded(child: Text(from.toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontWeight: seen ? FontWeight.w500 : FontWeight.bold))),
-        if (flagged) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.star_rounded, size: 15, color: Color(0xFFF5C518))),
-        Text(fmtDate(msg['date']), style: const TextStyle(fontSize: 11, color: muted)),
-      ]),
-      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(msg['subject'] ?? '(sem assunto)', maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: seen ? muted : Colors.white70)),
-        if (showAccount)
-          Row(children: [
-            Container(width: 7, height: 7, margin: const EdgeInsets.only(right: 5),
-                decoration: BoxDecoration(shape: BoxShape.circle, color: accColor(msg['accountEmail']?.toString()))),
-            Expanded(child: Text(msg['accountEmail'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: muted))),
-          ]),
-      ]),
+    return InkWell(
       onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Ponto de não-lido à esquerda (some quando lido).
+          Container(
+            width: 8, height: 8, margin: const EdgeInsets.only(top: 6, right: 8),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: seen ? Colors.transparent : accent),
+          ),
+          SenderAvatar(name: f['name']?.toString(), address: f['address']?.toString()),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(child: Text(from.toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 15, color: C.text,
+                        fontWeight: seen ? FontWeight.w500 : FontWeight.w700))),
+                const SizedBox(width: 8),
+                Text(fmtDate(msg['date']),
+                    style: TextStyle(fontSize: 12, color: seen ? C.muted : accent,
+                        fontWeight: seen ? FontWeight.w400 : FontWeight.w600)),
+              ]),
+              const SizedBox(height: 3),
+              Text(msg['subject'] ?? '(sem assunto)', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13.5, color: seen ? C.muted : C.text,
+                      fontWeight: seen ? FontWeight.w400 : FontWeight.w600)),
+              if (showAccount) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  Container(width: 7, height: 7, margin: const EdgeInsets.only(right: 5),
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: accColor(msg['accountEmail']?.toString()))),
+                  Expanded(child: Text(msg['accountEmail'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: C.muted))),
+                ]),
+              ],
+            ]),
+          ),
+          // Estrela (favoritar) à direita.
+          Padding(
+            padding: const EdgeInsets.only(left: 8, top: 2),
+            child: Icon(flagged ? Icons.star_rounded : Icons.star_outline_rounded,
+                size: 18, color: flagged ? const Color(0xFFF5C518) : C.muted.withValues(alpha: 0.5)),
+          ),
+        ]),
+      ),
     );
   }
+}
+
+// ---------------- Configurações (hub categorizado) ----------------
+class PreferencesScreen extends StatefulWidget {
+  const PreferencesScreen({super.key});
+  @override
+  State<PreferencesScreen> createState() => _PreferencesScreenState();
+}
+
+class _PreferencesScreenState extends State<PreferencesScreen> {
+  List _accounts = [];
+  bool _notifOn = false;
+  bool _loading = true;
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try { _accounts = await Api.accounts(); } catch (_) {}
+    try { _notifOn = await Notifications.hasPermission(); } catch (_) {}
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _version = '${info.version} (${info.buildNumber})';
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  void _snack(String m) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _toggleGeneralNotif(bool on) async {
+    setState(() => _notifOn = on);
+    if (on) {
+      final ok = await Notifications.requestAndRegister();
+      if (!ok && mounted) { setState(() => _notifOn = false); _snack('Permissão de notificação negada nas configurações do Android.'); }
+      else { _snack('Notificações ativadas.'); }
+    } else {
+      await Notifications.unregister();
+      _snack('Notificações desativadas neste aparelho.');
+    }
+  }
+
+  Future<void> _toggleAccountNotif(Map a, bool on) async {
+    setState(() => a['notify'] = on);
+    try {
+      await Api.setAccountNotify(a['id'], on);
+    } catch (e) {
+      if (mounted) { setState(() => a['notify'] = !on); _snack('Falha: $e'); }
+    }
+  }
+
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
+      title: const Text('Sair da conta?'),
+      content: const Text('Você precisará entrar de novo com usuário e senha.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sair')),
+      ],
+    ));
+    if (ok != true) return;
+    await Notifications.unregister();
+    await Cache.clear();
+    await Api.logout();
+    if (mounted) Navigator.pushAndRemoveUntil(context,
+        MaterialPageRoute(builder: (_) => const SettingsScreen()), (_) => false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = ThemeController.isDark.value;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Configurações')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(children: [
+              _sectionHeader('Aparência'),
+              SwitchListTile(
+                secondary: Icon(dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded, color: accent),
+                title: const Text('Tema escuro'),
+                subtitle: Text(dark ? 'Fundo escuro' : 'Fundo claro', style: TextStyle(color: C.muted, fontSize: 12)),
+                value: dark,
+                onChanged: (v) => ThemeController.set(v),
+              ),
+              const Divider(height: 1),
+
+              _sectionHeader('Notificações'),
+              SwitchListTile(
+                secondary: Icon(Icons.notifications_active_rounded, color: accent),
+                title: const Text('Notificar novos emails'),
+                subtitle: Text('Push neste aparelho ao chegar email', style: TextStyle(color: C.muted, fontSize: 12)),
+                value: _notifOn,
+                onChanged: _toggleGeneralNotif,
+              ),
+              if (_notifOn && _accounts.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+                  child: Text('Notificar por conta', style: TextStyle(color: C.muted, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                ),
+                ..._accounts.cast<Map>().map((a) => SwitchListTile(
+                      secondary: AccountAvatar(account: a, size: 34),
+                      title: Text((a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString(),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(a['email']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: C.muted, fontSize: 11.5)),
+                      value: a['notify'] != false,
+                      onChanged: (v) => _toggleAccountNotif(a, v),
+                    )),
+              ],
+              const Divider(height: 1),
+
+              _sectionHeader('Contas'),
+              ListTile(
+                leading: Icon(Icons.manage_accounts_rounded, color: accent),
+                title: const Text('Gerenciar contas'),
+                subtitle: Text('Adicionar, remover e reconectar', style: TextStyle(color: C.muted, fontSize: 12)),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
+                    .then((_) => _load()),
+              ),
+              const Divider(height: 1),
+
+              _sectionHeader('Sobre'),
+              ListTile(
+                leading: Icon(Icons.system_update_rounded, color: accent),
+                title: const Text('Buscar atualizações'),
+                onTap: () => Updater.check(context, auto: false),
+              ),
+              ListTile(
+                leading: Icon(Icons.info_outline_rounded, color: C.muted),
+                title: const Text('Versão'),
+                trailing: Text(_version, style: TextStyle(color: C.muted)),
+              ),
+              const Divider(height: 1),
+
+              const SizedBox(height: 8),
+              ListTile(
+                leading: const Icon(Icons.logout_rounded, color: Color(0xFFFF6B7A)),
+                title: const Text('Sair', style: TextStyle(color: Color(0xFFFF6B7A))),
+                onTap: _logout,
+              ),
+              const SizedBox(height: 24),
+            ]),
+    );
+  }
+
+  Widget _sectionHeader(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
+        child: Text(t.toUpperCase(),
+            style: TextStyle(color: accent, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+      );
 }
 
 // ---------------- Message detail ----------------
@@ -1020,7 +1241,7 @@ class _MessageScreenState extends State<MessageScreen> {
                             Text(f['name']?.toString().isNotEmpty == true ? f['name'] : (f['address'] ?? ''),
                                 style: const TextStyle(fontWeight: FontWeight.w600)),
                             Text('${f['address'] ?? ''} · ${fmtDate(full['date'])}',
-                                style: const TextStyle(fontSize: 12, color: muted)),
+                                style: TextStyle(fontSize: 12, color: C.muted)),
                           ])),
                         ]),
                         if (attachments.isNotEmpty) ...[
@@ -1037,7 +1258,7 @@ class _MessageScreenState extends State<MessageScreen> {
                               ),
                           ]),
                         ],
-                        const Divider(height: 28, color: line),
+                        Divider(height: 28, color: C.line),
                         // Emails são feitos para fundo branco. Renderizar o HTML direto no
                         // tema escuro deixa o texto escuro do email ilegível. Então mostro o
                         // corpo num "papel" branco com texto escuro (igual Gmail/Outlook).
@@ -1059,14 +1280,14 @@ class _MessageScreenState extends State<MessageScreen> {
                           Container(
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              color: surface,
+                              color: C.surface,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: line),
+                              border: Border.all(color: C.line),
                             ),
                             padding: const EdgeInsets.all(14),
                             child: SelectableText(
                               (full['text'] ?? '').toString(),
-                              style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+                              style: TextStyle(color: C.text, fontSize: 14, height: 1.5),
                             ),
                           ),
                       ]),
@@ -1079,7 +1300,7 @@ class _MessageScreenState extends State<MessageScreen> {
 
   Widget _replyBar(Map full, Map f) {
     return Container(
-      decoration: const BoxDecoration(color: surface, border: Border(top: BorderSide(color: line))),
+      decoration: BoxDecoration(color: C.surface, border: Border(top: BorderSide(color: C.line))),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: SafeArea(top: false, child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
         _barBtn(Icons.reply_rounded, 'Responder', () => _compose(
@@ -1103,7 +1324,7 @@ class _MessageScreenState extends State<MessageScreen> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(icon, size: 22, color: accent),
             const SizedBox(height: 2),
-            Text(label, style: const TextStyle(fontSize: 11, color: muted)),
+            Text(label, style: TextStyle(fontSize: 11, color: C.muted)),
           ]),
         ),
       ),
@@ -1352,19 +1573,19 @@ class _AccountsScreenState extends State<AccountsScreen> {
                 Padding(padding: const EdgeInsets.only(bottom: 8),
                     child: oauthButton('google', 'Entrar com o Google', () => oauthLogin('google'))),
               if (oauth['microsoft'] == true || oauth['google'] == true)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 6),
                   child: Row(children: [
-                    Expanded(child: Divider(color: line)),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('ou senha de app', style: TextStyle(fontSize: 12, color: muted))),
-                    Expanded(child: Divider(color: line)),
+                    Expanded(child: Divider(color: C.line)),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('ou senha de app', style: TextStyle(fontSize: 12, color: C.muted))),
+                    Expanded(child: Divider(color: C.line)),
                   ]),
                 ),
               TextField(controller: name, decoration: const InputDecoration(labelText: 'Nome')),
               TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
               TextField(controller: pass, obscureText: true, decoration: const InputDecoration(labelText: 'Senha de app')),
               const SizedBox(height: 8),
-              const Text('Gmail e Outlook exigem "Senha de app".', style: TextStyle(fontSize: 12, color: muted)),
+              Text('Gmail e Outlook exigem "Senha de app".', style: TextStyle(fontSize: 12, color: C.muted)),
               if (result != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(result!)),
             ]),
           ),
@@ -1387,7 +1608,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _accounts.isEmpty
-              ? const Center(child: Text('Nenhuma conta ainda.', style: TextStyle(color: muted)))
+              ? Center(child: Text('Nenhuma conta ainda.', style: TextStyle(color: C.muted)))
               : ListView(
                   children: _accounts.cast<Map>().map((a) => ListTile(
                         leading: AccountAvatar(account: a, size: 40),
@@ -1526,7 +1747,7 @@ Widget oauthButton(String provider, String label, VoidCallback onTap) {
     onPressed: onTap,
     style: OutlinedButton.styleFrom(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-      side: const BorderSide(color: line),
+      side: BorderSide(color: C.line),
       foregroundColor: Colors.white,
     ),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1613,7 +1834,7 @@ class _SkeletonListState extends State<_SkeletonList> with SingleTickerProviderS
           Widget bar(double w, double h) => Container(
                 width: w, height: h,
                 decoration: BoxDecoration(
-                  color: surface2.withValues(alpha: o),
+                  color: C.surface2.withValues(alpha: o),
                   borderRadius: BorderRadius.circular(6),
                 ),
               );
@@ -1621,7 +1842,7 @@ class _SkeletonListState extends State<_SkeletonList> with SingleTickerProviderS
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Container(width: 42, height: 42,
-                  decoration: BoxDecoration(color: surface2.withValues(alpha: o), borderRadius: BorderRadius.circular(12))),
+                  decoration: BoxDecoration(color: C.surface2.withValues(alpha: o), borderRadius: BorderRadius.circular(12))),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 bar(120, 11), const SizedBox(height: 9), bar(double.infinity, 11),

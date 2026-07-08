@@ -40,6 +40,8 @@ if (!cols.includes('auth_type')) db.exec("ALTER TABLE accounts ADD COLUMN auth_t
 if (!cols.includes('provider')) db.exec('ALTER TABLE accounts ADD COLUMN provider TEXT');
 if (!cols.includes('refresh_token_enc')) db.exec('ALTER TABLE accounts ADD COLUMN refresh_token_enc TEXT');
 if (!cols.includes('avatar_url')) db.exec('ALTER TABLE accounts ADD COLUMN avatar_url TEXT');
+// Notificar (push) desta conta? Liga/desliga por conta nas Configurações. Default: sim.
+if (!cols.includes('notify')) db.exec('ALTER TABLE accounts ADD COLUMN notify INTEGER NOT NULL DEFAULT 1');
 
 // ---- Serialização (esconde a senha; nunca sai da API) ----
 function rowToAccount(row, { withSecret = false } = {}) {
@@ -51,6 +53,7 @@ function rowToAccount(row, { withSecret = false } = {}) {
     authType: row.auth_type || 'password',
     provider: row.provider || null,
     avatarUrl: row.avatar_url || null,
+    notify: row.notify == null ? true : !!row.notify,
     imap: { host: row.imap_host, port: row.imap_port, secure: !!row.imap_secure },
     smtp: { host: row.smtp_host, port: row.smtp_port, secure: !!row.smtp_secure },
     createdAt: row.created_at,
@@ -150,6 +153,12 @@ export function upsertOAuthAccount(input) {
 
 export function deleteAccount(id) {
   const info = db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
+  return info.changes > 0;
+}
+
+// Liga/desliga o push (notificação) de uma conta.
+export function setNotify(id, notify) {
+  const info = db.prepare('UPDATE accounts SET notify=? WHERE id=?').run(notify ? 1 : 0, id);
   return info.changes > 0;
 }
 

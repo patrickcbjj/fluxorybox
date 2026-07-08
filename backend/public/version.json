@@ -1,6 +1,6 @@
 {
-  "versionCode": 12,
-  "versionName": "1.1.9",
-  "apkUrl": "/FluxoryBox-1.1.9-beta.apk",
-  "notes": "Muito mais rápido e em tempo real: o app agora abre instantâneo mostrando os emails em cache enquanto sincroniza por trás; emails novos chegam quase na hora (push instantâneo via IMAP IDLE no servidor); e ao tocar na notificação o app abre direto no email, não mais na caixa de entrada."
+  "versionCode": 13,
+  "versionName": "1.1.10",
+  "apkUrl": "/FluxoryBox-1.1.10-beta.apk",
+  "notes": "Cara nova: tema claro/escuro com botão (Configurações › Aparência), lista de emails redesenhada (mais limpa, ponto de não-lido, remetente e hora em destaque) e a logo nova do FluxoryBox. Configurações reorganizadas por seções, com ligar/desligar notificações no geral e por conta."
 }

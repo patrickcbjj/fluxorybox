@@ -151,6 +151,10 @@ class Api {
   static Future<dynamic> deleteAccount(int id) async =>
       await _delete('/api/accounts/$id');
 
+  // Liga/desliga a notificação (push) de uma conta.
+  static Future<dynamic> setAccountNotify(int id, bool notify) async =>
+      await _post('/api/accounts/$id/notify', {'notify': notify});
+
   static Future<dynamic> send(int accountId, Map body) async =>
       await _post('/api/accounts/$accountId/send', body);
 

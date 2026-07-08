@@ -54,3 +54,6 @@ Thumbs.db
 .idea/
 .vscode/
 dist/
+
+# backups locais
+*.bak

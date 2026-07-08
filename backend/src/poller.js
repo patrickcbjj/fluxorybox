@@ -48,6 +48,7 @@ async function tick() {
       if (skip > 0) { skipCycles.set(a.id, skip - 1); continue; }
       try {
         const full = getAccount(a.id, { withSecret: true });
+        if (full.notify === false) { failStreak.set(a.id, 0); markHealthy(a.id); continue; } // push desligado p/ esta conta
         const novos = await checkAccount(full);
         failStreak.set(a.id, 0); // sucesso zera o streak
         markHealthy(a.id);       // conexão ok → conta saudável
