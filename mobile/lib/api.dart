@@ -98,9 +98,9 @@ class Api {
       await _get('/api/accounts/$accountId/messages'
           '?folder=${Uri.encodeComponent(folder)}&limit=$limit&offset=$offset');
 
-  // Pastas de uma conta.
-  static Future<List<dynamic>> folders(int accountId) async =>
-      await _get('/api/accounts/$accountId/folders');
+  // Pastas de uma conta. Com counts=true, cada pasta traz unseen/total (badges do drawer).
+  static Future<List<dynamic>> folders(int accountId, {bool counts = false}) async =>
+      await _get('/api/accounts/$accountId/folders${counts ? '?counts=1' : ''}');
 
   static Future<Map> message(int accountId, int uid, String folder) async =>
       await _get('/api/accounts/$accountId/messages/$uid?folder=${Uri.encodeComponent(folder)}');

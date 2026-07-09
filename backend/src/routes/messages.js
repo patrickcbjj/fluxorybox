@@ -88,7 +88,7 @@ export default async function messagesRoutes(app) {
     const account = getAccount(Number(req.params.id), { withSecret: true });
     if (!account) return reply.code(404).send({ error: 'conta não encontrada' });
     try {
-      const folders = await listFolders(account);
+      const folders = await listFolders(account, { withCounts: req.query.counts == '1' });
       markHealthy(account.id);
       return folders;
     } catch (e) {

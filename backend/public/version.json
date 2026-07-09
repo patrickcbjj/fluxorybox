@@ -1,6 +1,6 @@
 {
-  "versionCode": 2016,
-  "versionName": "1.1.13",
-  "apkUrl": "/FluxoryBox-1.1.13-beta.apk",
-  "notes": "Ações rápidas na lista: arraste um email para o lado (→ Arquivar, ← Lixeira, com desfazer). Segure um email para selecionar vários e agir em lote (marcar lida/não-lida, favoritar, arquivar, excluir). E 'Marcar tudo como lido' no menu."
+  "versionCode": 2017,
+  "versionName": "1.1.14",
+  "apkUrl": "/FluxoryBox-1.1.14-beta.apk",
+  "notes": "Nova cara estilo Outlook: menu lateral com suas contas e pastas (com contador de não lidas), abas Destaques/Outros, botão Filtrar (não lidos, favoritos, com anexo) e e-mails agrupados por data (Hoje, Esta semana, etc). Correção: links dentro dos e-mails agora abrem ao tocar."
 }

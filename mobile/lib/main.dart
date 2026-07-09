@@ -323,6 +323,16 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   bool get _selectMode => _selected.isNotEmpty;
   String _msgKey(Map m) => '${m['accountId']}_${m['uid']}_${m['folder']}';
 
+  // Abas Destaques/Outros (Focused Inbox estilo Outlook) — só na Caixa de entrada.
+  String _focusTab = 'focused'; // 'focused' | 'other'
+  // Filtros ativos (Não lidos / Favoritos / Com anexo).
+  final Set<String> _filters = {}; // 'unread' | 'starred' | 'attachment'
+
+  // Drawer (menu lateral estilo Outlook): pastas da conta atual + contagens.
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  List _drawerFolders = [];
+  bool _drawerLoading = false;
+
   Timer? _poll;
 
   @override
@@ -514,6 +524,76 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
+  // ---------------- Destaques/Outros + Filtros + Agrupamento por data ----------------
+  // A aba Destaques/Outros só aparece na Caixa de entrada (não faz sentido em Enviados etc.).
+  bool get _showFocusBar => _navFolder == 'INBOX' && !_searching && !_searchOpen;
+
+  // Heurística "remetente automático" → cai em "Outros". Pessoas reais → "Destaques".
+  static final RegExp _autoRe = RegExp(
+    r'(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|notification|notifications|newsletter|mailer|mailer-daemon|bounce|postmaster|noreply|updates?|digest|alerts?|automated|auto[-_.]?confirm|marketing|billing|suporte|support|contato|contact|info|news|promo|deals?)',
+    caseSensitive: false,
+  );
+  bool _isAutomated(Map m) {
+    final fromList = (m['from'] as List?) ?? [];
+    final f = fromList.isNotEmpty ? fromList[0] : {};
+    final addr = (f['address'] ?? '').toString().toLowerCase();
+    final local = addr.contains('@') ? addr.split('@')[0] : addr;
+    return _autoRe.hasMatch(local);
+  }
+
+  bool _matchesFilters(Map m) {
+    if (_filters.contains('unread') && m['seen'] == true) return false;
+    if (_filters.contains('starred') && m['flagged'] != true) return false;
+    if (_filters.contains('attachment') && m['hasAttachments'] != true) return false;
+    return true;
+  }
+
+  // Mensagens visíveis = base filtrada por aba (Destaques/Outros) + filtros ativos.
+  List<Map> get _visibleMessages {
+    return _messages.cast<Map>().where((m) {
+      if (!_matchesFilters(m)) return false;
+      if (_showFocusBar) {
+        final auto = _isAutomated(m);
+        if (_focusTab == 'focused' && auto) return false;
+        if (_focusTab == 'other' && !auto) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  // Rótulo do "balde" de data de uma mensagem (Hoje/Ontem/Esta semana/...).
+  String _dateBucket(dynamic d) {
+    final date = DateTime.tryParse((d ?? '').toString())?.toLocal();
+    if (date == null) return 'Sem data';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(date.year, date.month, date.day);
+    final diff = today.difference(that).inDays;
+    if (diff <= 0) return 'Hoje';
+    if (diff == 1) return 'Ontem';
+    // Semana começa na segunda.
+    final startOfWeek = today.subtract(Duration(days: (today.weekday - 1)));
+    if (!that.isBefore(startOfWeek)) return 'Esta semana';
+    final startOfLastWeek = startOfWeek.subtract(const Duration(days: 7));
+    if (!that.isBefore(startOfLastWeek)) return 'Semana passada';
+    if (date.year == now.year && date.month == now.month) return 'Este mês';
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    if (date.year == now.year) return meses[date.month - 1];
+    return '${meses[date.month - 1]} de ${date.year}';
+  }
+
+  // Lista "achatada" pra ListView: intercala cabeçalhos de data (String) com mensagens (Map).
+  List<dynamic> _buildRows() {
+    final rows = <dynamic>[];
+    String? last;
+    for (final m in _visibleMessages) {
+      final b = _dateBucket(m['date']);
+      if (b != last) { rows.add(b); last = b; }
+      rows.add(m);
+    }
+    return rows;
+  }
+
   // ---------------- Seleção múltipla + ações em lote ----------------
   void _toggleSelect(Map m) {
     final k = _msgKey(m);
@@ -699,45 +779,6 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     _load(reset: true);
   }
 
-  Future<void> _openFolders() async {
-    final items = _folders.isNotEmpty ? _folders : [{'path': 'INBOX', 'name': 'INBOX'}];
-    final chosen = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: C.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-      builder: (_) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Padding(padding: EdgeInsets.all(16),
-              child: Text('Pastas', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-          ...items.cast<Map>().map((f) {
-            final label = folderLabels[f['specialUse']] ??
-                (f['path'] == 'INBOX' ? 'Caixa de entrada' : (f['name'] ?? f['path']).toString());
-            final active = f['path'] == _folder;
-            return ListTile(
-              leading: Icon(active ? Icons.folder_rounded : Icons.folder_outlined,
-                  color: active ? accent : C.muted),
-              title: Text(label, style: TextStyle(color: active ? accent : null)),
-              onTap: () => Navigator.pop(context, f['path']?.toString()),
-            );
-          }),
-          const SizedBox(height: 8),
-        ]),
-      ),
-    );
-    if (chosen != null && chosen != _folder) {
-      // Sincroniza o bottom nav: se a pasta escolhida for uma das 4 principais, destaca-a;
-      // senão usa 'INBOX' como sentinela (o título mostra o nome da pasta custom).
-      final f = _folders.cast<Map>().firstWhere((x) => x['path'] == chosen, orElse: () => {});
-      final special = f['specialUse']?.toString();
-      const navSet = {'\\Sent', '\\Drafts', '\\Trash'};
-      setState(() {
-        _folder = chosen; _offset = 0;
-        _navFolder = (special != null && navSet.contains(special)) ? special : 'INBOX';
-      });
-      await _load(reset: true);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -748,7 +789,10 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
         else if (_searchOpen) _clearSearch();
       },
       child: Scaffold(
+      key: _scaffoldKey,
       backgroundColor: C.bg,
+      drawer: _buildDrawer(),
+      onDrawerChanged: (open) { if (open) _loadDrawerFolders(); },
       floatingActionButton: SizedBox(
         width: 58, height: 58,
         child: FloatingActionButton(
@@ -766,7 +810,7 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
           _header(),
           if (_refreshing)
             const SizedBox(height: 2, child: LinearProgressIndicator(minHeight: 2)),
-          if (!_searchOpen) _accountChips(),
+          if (_showFocusBar) _focusBar(),
           if (_searching) _searchBanner(),
           ..._disconnectedAccounts.map(_reconnectBanner),
           Expanded(
@@ -823,7 +867,12 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
               ),
             ])
           : Row(children: [
-              _roundBtn(Icons.menu_rounded, _openMenu, tooltip: 'Menu'),
+              // Avatar da conta abre o menu lateral (drawer), estilo Outlook.
+              InkWell(
+                borderRadius: BorderRadius.circular(22),
+                onTap: () => _scaffoldKey.currentState?.openDrawer(),
+                child: Tooltip(message: 'Menu', child: _headerAvatar()),
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
@@ -834,16 +883,29 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
                       style: TextStyle(fontSize: 12.5, color: C.muted)),
                 ]),
               ),
-              const SizedBox(width: 8),
-              _roundBtn(
-                ThemeController.isDark.value ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                _toggleTheme,
-                tooltip: ThemeController.isDark.value ? 'Tema claro' : 'Tema escuro',
-              ),
+              const SizedBox(width: 6),
+              _roundBtn(Icons.notifications_none_rounded, _openNotificationSettings, tooltip: 'Notificações'),
               const SizedBox(width: 8),
               _roundBtn(Icons.search_rounded, () => setState(() => _searchOpen = true), tooltip: 'Buscar'),
             ]),
     );
+  }
+
+  // Avatar do header: a conta selecionada, ou um ícone de "todas" no modo unificado.
+  Widget _headerAvatar() {
+    if (_view is int && _account != null && (_account!).isNotEmpty) {
+      return AccountAvatar(account: _account!, size: 40);
+    }
+    return Container(
+      width: 40, height: 40,
+      decoration: BoxDecoration(color: C.surface2, shape: BoxShape.circle),
+      child: Icon(Icons.all_inbox_rounded, size: 21, color: accent),
+    );
+  }
+
+  void _openNotificationSettings() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesScreen()))
+        .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
   }
 
   // Alterna claro/escuro na hora: set (síncrono no valor) + setState reconstrói esta tela.
@@ -878,70 +940,105 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     );
   }
 
-  // Chips de conta (Todas + cada conta) — como as abas do print.
-  Widget _accountChips() {
-    return SizedBox(
-      height: 48,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
-        children: [
-          _chip(
-            selected: _view == 'unified',
-            onTap: () => _selectView('unified'),
-            icon: Icons.all_inbox_rounded,
-            label: 'Todas',
+  // Barra Destaques/Outros (Focused Inbox) + botão Filtrar — estilo Outlook.
+  Widget _focusBar() {
+    final nFilters = _filters.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 2, 12, 8),
+      child: Row(children: [
+        _segmented(),
+        const Spacer(),
+        Material(
+          color: nFilters > 0 ? accent : C.surface2,
+          borderRadius: BorderRadius.circular(20),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: _openFilterSheet,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.filter_list_rounded, size: 18, color: nFilters > 0 ? Colors.white : C.text),
+                const SizedBox(width: 6),
+                Text(nFilters > 0 ? 'Filtrar ($nFilters)' : 'Filtrar',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
+                        color: nFilters > 0 ? Colors.white : C.text)),
+              ]),
+            ),
           ),
-          ..._accounts.cast<Map>().map((a) {
-            final name = (a['displayName']?.toString().isNotEmpty == true ? a['displayName'] : a['email']).toString();
-            return _chip(
-              selected: _view == a['id'],
-              onTap: () => _selectView(a['id']),
-              label: name,
-              avatar: a,
-              warn: a['disconnected'] == true,
-            );
-          }),
-          _chip(
-            selected: false,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
-                .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); }),
-            icon: Icons.add_rounded,
-            label: 'Adicionar',
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
-  Widget _chip({required bool selected, required VoidCallback onTap, String? label, IconData? icon, Map? avatar, bool warn = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Material(
-        color: selected ? accent : C.surface2,
-        borderRadius: BorderRadius.circular(22),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(22),
-          onTap: onTap,
-          child: Padding(
-            padding: EdgeInsets.only(left: avatar != null ? 6 : 14, right: 14, top: 8, bottom: 8),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (avatar != null) ...[
-                AccountAvatar(account: avatar, size: 22),
-                const SizedBox(width: 7),
-              ] else if (icon != null) ...[
-                Icon(icon, size: 18, color: selected ? Colors.white : C.muted),
-                const SizedBox(width: 6),
-              ],
-              Text(label ?? '', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
-                  color: selected ? Colors.white : C.text)),
-              if (warn) ...[
-                const SizedBox(width: 5),
-                const Icon(Icons.error_rounded, size: 14, color: Color(0xFFFF6B7A)),
-              ],
-            ]),
+  // Segmento Destaques | Outros.
+  Widget _segmented() {
+    Widget seg(String id, String label) {
+      final on = _focusTab == id;
+      return GestureDetector(
+        onTap: () { if (_focusTab != id) setState(() => _focusTab = id); },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? C.bg : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: on ? [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4, offset: const Offset(0, 1))] : null,
           ),
+          child: Text(label, style: TextStyle(fontSize: 13.5,
+              fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+              color: on ? C.text : C.muted)),
         ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: C.surface2, borderRadius: BorderRadius.circular(19)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        seg('focused', 'Destaques'),
+        seg('other', 'Outros'),
+      ]),
+    );
+  }
+
+  void _openFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: C.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          Widget opt(String id, IconData icon, String label) {
+            final on = _filters.contains(id);
+            return ListTile(
+              leading: Icon(icon, color: on ? accent : C.muted),
+              title: Text(label),
+              trailing: Icon(on ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  color: on ? accent : C.muted),
+              onTap: () {
+                setSheet(() { on ? _filters.remove(id) : _filters.add(id); });
+                setState(() {});
+              },
+            );
+          }
+          return SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(color: C.line, borderRadius: BorderRadius.circular(2))),
+              Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Row(children: [
+                    Text('Filtrar', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: C.text)),
+                    const Spacer(),
+                    if (_filters.isNotEmpty)
+                      TextButton(onPressed: () { setSheet(() => _filters.clear()); setState(() {}); },
+                          child: const Text('Limpar')),
+                  ])),
+              opt('unread', Icons.mark_email_unread_outlined, 'Não lidos'),
+              opt('starred', Icons.star_outline_rounded, 'Favoritos'),
+              opt('attachment', Icons.attach_file_rounded, 'Com anexo'),
+              const SizedBox(height: 8),
+            ]),
+          );
+        },
       ),
     );
   }
@@ -986,52 +1083,277 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
   }
 
   // Menu (botão de menu do header): pastas da conta + gerenciar contas + configurações.
-  void _openMenu() {
-    showModalBottomSheet(
-      context: context,
+  // Carrega as pastas (com contagem de não-lidas) da conta atual pro drawer.
+  Future<void> _loadDrawerFolders({bool force = false}) async {
+    if (_view is! int) { if (mounted) setState(() => _drawerFolders = []); return; }
+    if (_drawerLoading && !force) return;
+    final id = _view as int;
+    if (mounted) setState(() => _drawerLoading = true);
+    try {
+      final fs = await Api.folders(id, counts: true);
+      if (mounted) setState(() { _drawerFolders = fs; _folders = fs; });
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _drawerLoading = false);
+    }
+  }
+
+  IconData _folderIcon(String? special, String path) {
+    switch (special) {
+      case '\\Inbox': return Icons.inbox_rounded;
+      case '\\Archive': return Icons.archive_outlined;
+      case '\\Drafts': return Icons.edit_note_rounded;
+      case '\\Sent': return Icons.send_rounded;
+      case '\\Trash': return Icons.delete_outline_rounded;
+      case '\\Junk': return Icons.report_gmailerrorred_rounded;
+      case '\\All': return Icons.all_inbox_rounded;
+      case '\\Flagged': return Icons.star_outline_rounded;
+    }
+    return path == 'INBOX' ? Icons.inbox_rounded : Icons.folder_outlined;
+  }
+
+  String _folderName(Map f) {
+    final s = f['specialUse']?.toString();
+    if (s != null && folderLabels[s] != null) return folderLabels[s]!;
+    if ((f['path']?.toString() ?? '') == 'INBOX') return 'Caixa de entrada';
+    return (f['name'] ?? f['path'] ?? '').toString();
+  }
+
+  // Ordena pastas: Caixa de entrada e especiais primeiro, resto depois.
+  int _folderRank(Map f) {
+    final s = f['specialUse']?.toString();
+    final path = f['path']?.toString() ?? '';
+    if (path == 'INBOX' || s == '\\Inbox') return 0;
+    const order = ['\\Archive', '\\Drafts', '\\Sent', '\\Trash', '\\Junk', '\\All', '\\Flagged'];
+    final i = order.indexOf(s ?? '');
+    return i >= 0 ? 1 + i : 100;
+  }
+
+  // Pastas mostradas no drawer (por conta = reais com contagem; unificado = atalhos especiais).
+  List<Map> get _drawerItems {
+    if (_view is int) {
+      final list = _drawerFolders.cast<Map>().toList()
+        ..sort((a, b) => _folderRank(a).compareTo(_folderRank(b)));
+      return list;
+    }
+    return const [
+      {'specialUse': '\\Inbox', 'path': 'INBOX'},
+      {'specialUse': '\\Archive'},
+      {'specialUse': '\\Drafts'},
+      {'specialUse': '\\Sent'},
+      {'specialUse': '\\Trash'},
+      {'specialUse': '\\Junk'},
+    ];
+  }
+
+  bool _isFolderActive(Map f) {
+    final special = f['specialUse']?.toString();
+    if (_view is int) {
+      final path = f['path']?.toString() ?? '';
+      if (path == 'INBOX' || special == '\\Inbox') return _navFolder == 'INBOX' && (_folder == 'INBOX');
+      return _folder == path;
+    }
+    final s = (special == '\\Inbox') ? 'INBOX' : special;
+    return _navFolder == s;
+  }
+
+  Future<void> _selectDrawerFolder(Map f) async {
+    Navigator.of(context).pop(); // fecha o drawer
+    final special = f['specialUse']?.toString();
+    if (_view is int) {
+      final path = f['path']?.toString() ?? (special == '\\Inbox' ? 'INBOX' : 'INBOX');
+      const navSet = {'\\Sent', '\\Drafts', '\\Trash'};
+      setState(() {
+        _folder = path; _offset = 0; _unifiedLimit = 40;
+        _navFolder = (path == 'INBOX' || special == '\\Inbox') ? 'INBOX'
+            : (navSet.contains(special) ? special! : 'INBOX');
+        _searching = false; _searchOpen = false; _query = ''; _searchCtrl.clear();
+      });
+      final cached = await Cache.loadList(_view, _cacheFolder);
+      if (mounted && cached.isNotEmpty) setState(() { _messages = cached; _loading = false; });
+      await _load(reset: true, silent: cached.isNotEmpty);
+    } else {
+      await _selectNavFolder(special == '\\Inbox' ? 'INBOX' : (special ?? 'INBOX'));
+    }
+  }
+
+  // Troca a conta pelo rail do drawer (mantém o drawer aberto e recarrega as pastas).
+  Future<void> _selectRailAccount(dynamic v) async {
+    if (_view != v) await _selectView(v);
+    await _loadDrawerFolders(force: true);
+  }
+
+  // ---------------- Drawer (menu lateral estilo Outlook) ----------------
+  Widget _buildDrawer() {
+    return Drawer(
       backgroundColor: C.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(color: C.line, borderRadius: BorderRadius.circular(2))),
-          ListTile(
-            leading: Icon(Icons.mark_email_read_outlined, color: accent),
-            title: const Text('Marcar tudo como lido'),
-            onTap: () { Navigator.pop(context); _markAllRead(); },
+      width: 320,
+      child: SafeArea(
+        child: Row(children: [
+          _drawerRail(),
+          Container(width: 1, color: C.line),
+          Expanded(child: _drawerPanel()),
+        ]),
+      ),
+    );
+  }
+
+  Widget _drawerRail() {
+    return Container(
+      width: 66,
+      color: C.surface2,
+      child: Column(children: [
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            children: [
+              _railButton(
+                selected: _view == 'unified',
+                onTap: () => _selectRailAccount('unified'),
+                child: Icon(Icons.all_inbox_rounded, size: 22, color: _view == 'unified' ? Colors.white : accent),
+                bg: _view == 'unified' ? accent : C.surface,
+              ),
+              ..._accounts.cast<Map>().map((a) => _railButton(
+                    selected: _view == a['id'],
+                    onTap: () => _selectRailAccount(a['id']),
+                    warn: a['disconnected'] == true,
+                    child: AccountAvatar(account: a, size: 40),
+                  )),
+              _railButton(
+                selected: false,
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
+                      .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
+                },
+                child: Icon(Icons.add_rounded, size: 24, color: C.muted),
+                bg: C.surface,
+              ),
+            ],
           ),
-          ListTile(
-            leading: Icon(Icons.checklist_rounded, color: accent),
-            title: const Text('Selecionar mensagens'),
-            onTap: () {
-              Navigator.pop(context);
-              if (_messages.isNotEmpty) _toggleSelect(_messages.first as Map);
-            },
-          ),
-          if (_view is int)
-            ListTile(
-              leading: Icon(Icons.folder_outlined, color: accent),
-              title: const Text('Todas as pastas'),
-              subtitle: Text('Spam, Arquivo e outras', style: TextStyle(color: C.muted, fontSize: 12)),
-              onTap: () { Navigator.pop(context); _openFolders(); },
+        ),
+        Divider(height: 1, color: C.line),
+        _railIcon(Icons.help_outline_rounded, 'Ajuda', () {
+          Navigator.of(context).pop();
+          showAboutDialog(context: context, applicationName: 'FluxoryBox',
+              children: [const Text('Seu cliente de email. Dúvidas: veja as Configurações.')]);
+        }),
+        _railIcon(Icons.settings_rounded, 'Configurações', () {
+          Navigator.of(context).pop();
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesScreen()))
+              .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
+        }),
+        const SizedBox(height: 6),
+      ]),
+    );
+  }
+
+  Widget _railButton({required bool selected, required VoidCallback onTap, required Widget child, Color? bg, bool warn = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Container(
+            width: 50, height: 50,
+            decoration: BoxDecoration(
+              color: bg ?? C.surface,
+              shape: BoxShape.circle,
+              border: selected ? Border.all(color: accent, width: 2.5) : null,
             ),
-          ListTile(
-            leading: Icon(Icons.manage_accounts_rounded, color: accent),
-            title: const Text('Gerenciar contas'),
-            onTap: () { Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountsScreen()))
-                  .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
-            },
+            child: Center(child: child),
           ),
-          ListTile(
-            leading: Icon(Icons.settings_rounded, color: accent),
-            title: const Text('Configurações'),
-            onTap: () { Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesScreen()))
-                  .then((_) async { try { _accounts = await Api.accounts(); gAccounts = _accounts; } catch (_) {} if (mounted) setState(() {}); });
-            },
-          ),
-          const SizedBox(height: 8),
+          if (warn)
+            Positioned(right: -1, top: -1, child: Container(
+              width: 14, height: 14,
+              decoration: BoxDecoration(color: const Color(0xFFFF6B7A), shape: BoxShape.circle,
+                  border: Border.all(color: C.surface2, width: 2)),
+            )),
+        ]),
+      ),
+    );
+  }
+
+  Widget _railIcon(IconData icon, String tip, VoidCallback onTap) {
+    return Tooltip(
+      message: tip,
+      child: IconButton(icon: Icon(icon, color: C.muted, size: 22), onPressed: onTap),
+    );
+  }
+
+  Widget _drawerPanel() {
+    final acc = _view is int ? _account : null;
+    final title = acc != null && acc.isNotEmpty
+        ? (acc['displayName']?.toString().isNotEmpty == true ? acc['displayName'].toString() : acc['email'].toString())
+        : 'Todas as contas';
+    final subtitle = acc != null && acc.isNotEmpty ? acc['email']?.toString() ?? '' : 'Caixa unificada';
+    final items = _drawerItems;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: C.text)),
+          if (subtitle.isNotEmpty)
+            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.5, color: C.muted)),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+        child: Text('Pastas', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700,
+            color: C.muted, letterSpacing: 0.3)),
+      ),
+      if (_drawerLoading && items.isEmpty)
+        const Padding(padding: EdgeInsets.all(20),
+            child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)))),
+      Expanded(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 8),
+          children: items.map(_drawerFolderTile).toList(),
+        ),
+      ),
+      Divider(height: 1, color: C.line),
+      ListTile(
+        dense: true,
+        leading: Icon(Icons.mark_email_read_outlined, color: accent, size: 22),
+        title: const Text('Marcar tudo como lido'),
+        onTap: () { Navigator.of(context).pop(); _markAllRead(); },
+      ),
+      ListTile(
+        dense: true,
+        leading: Icon(ThemeController.isDark.value ? Icons.light_mode_rounded : Icons.dark_mode_rounded, color: accent, size: 22),
+        title: Text(ThemeController.isDark.value ? 'Tema claro' : 'Tema escuro'),
+        onTap: () { Navigator.of(context).pop(); _toggleTheme(); },
+      ),
+      const SizedBox(height: 4),
+    ]);
+  }
+
+  Widget _drawerFolderTile(Map f) {
+    final active = _isFolderActive(f);
+    final special = f['specialUse']?.toString();
+    final path = f['path']?.toString() ?? '';
+    final unseen = (f['unseen'] is int) ? f['unseen'] as int : 0;
+    return InkWell(
+      onTap: () => _selectDrawerFolder(f),
+      child: Container(
+        color: active ? accent.withValues(alpha: 0.14) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(children: [
+          Icon(_folderIcon(special, path), size: 21, color: active ? accent : C.muted),
+          const SizedBox(width: 14),
+          Expanded(child: Text(_folderName(f), maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14.5, fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: active ? accent : C.text))),
+          if (unseen > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(10)),
+              child: Text(unseen > 999 ? '999+' : '$unseen',
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white)),
+            ),
         ]),
       ),
     );
@@ -1096,18 +1418,26 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
             : null,
       );
     }
-    if (_messages.isEmpty) {
-      return Center(child: Text(_searching ? 'Nenhum resultado.' : 'Sem mensagens por aqui.',
-          style: TextStyle(color: C.muted)));
+    final rows = _buildRows();
+    if (rows.isEmpty) {
+      // Distinção: sem nada carregado vs. filtro/aba escondeu tudo.
+      final hidden = _messages.isNotEmpty;
+      return Center(child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          _searching ? 'Nenhum resultado.'
+              : hidden ? (_focusTab == 'other' ? 'Nada em Outros por aqui.' : 'Nada em Destaques por aqui.')
+              : 'Sem mensagens por aqui.',
+          textAlign: TextAlign.center, style: TextStyle(color: C.muted)),
+      ));
     }
     final showLoadMore = !_searching;
     return RefreshIndicator(
       onRefresh: () => _refreshSilent(),
-      child: ListView.separated(
-        itemCount: _messages.length + (showLoadMore ? 1 : 0),
-        separatorBuilder: (_, __) => Divider(height: 1, color: C.line),
+      child: ListView.builder(
+        itemCount: rows.length + (showLoadMore ? 1 : 0),
         itemBuilder: (_, i) {
-          if (i >= _messages.length) {
+          if (i >= rows.length) {
             return Padding(
               padding: const EdgeInsets.all(12),
               child: Center(
@@ -1117,19 +1447,31 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
               ),
             );
           }
-          final m = _messages[i] as Map;
-          final tile = _MessageTile(
-            msg: m,
-            showAccount: _view == 'unified',
-            selected: _selected.contains(_msgKey(m)),
-            selectMode: _selectMode,
-            onLongPress: () => _toggleSelect(m),
-            onTap: () {
-              if (_selectMode) { _toggleSelect(m); return; }
-              Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => MessageScreen(summary: m, accounts: _accounts))).then((_) => _refreshSilent());
-            },
-          );
+          final row = rows[i];
+          // Cabeçalho de data (Hoje/Esta semana/...).
+          if (row is String) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, i == 0 ? 6 : 16, 16, 6),
+              child: Text(row, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700,
+                  color: C.muted, letterSpacing: 0.2)),
+            );
+          }
+          final m = row as Map;
+          final tile = Column(children: [
+            _MessageTile(
+              msg: m,
+              showAccount: _view == 'unified',
+              selected: _selected.contains(_msgKey(m)),
+              selectMode: _selectMode,
+              onLongPress: () => _toggleSelect(m),
+              onTap: () {
+                if (_selectMode) { _toggleSelect(m); return; }
+                Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => MessageScreen(summary: m, accounts: _accounts))).then((_) => _refreshSilent());
+              },
+            ),
+            Divider(height: 1, color: C.line),
+          ]);
           // Sem swipe no modo seleção. Arrastar: → Arquivar, ← Lixeira.
           if (_selectMode) return tile;
           return Dismissible(
@@ -1593,6 +1935,21 @@ class _MessageScreenState extends State<MessageScreen> {
                             child: HtmlWidget(
                               full['html'],
                               textStyle: const TextStyle(color: Color(0xFF1A1A1A), fontSize: 14, height: 1.45),
+                              // Sem isto o flutter_widget_from_html ignora toques em links
+                              // (texto ou imagem com href) — abre no navegador do sistema.
+                              onTapUrl: (url) async {
+                                var raw = url.trim();
+                                if (raw.isEmpty) return false;
+                                // Links relativos/sem esquema: assume https.
+                                if (!raw.contains(':') && !raw.startsWith('/')) raw = 'https://$raw';
+                                final uri = Uri.tryParse(raw);
+                                if (uri == null) return false;
+                                try {
+                                  return await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                } catch (_) {
+                                  return false;
+                                }
+                              },
                             ),
                           )
                         else

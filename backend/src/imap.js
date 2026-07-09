@@ -98,16 +98,40 @@ export async function testAccount(account) {
   return true;
 }
 
-// Lista as pastas (mailboxes) da conta.
-export async function listFolders(account) {
+// True se a estrutura MIME da mensagem tem algum anexo de verdade (não inline/texto).
+function structHasAttachment(node) {
+  if (!node) return false;
+  const disp = (node.disposition || '').toLowerCase();
+  if (disp === 'attachment') return true;
+  const type = (node.type || '').toLowerCase();
+  const fname = node.dispositionParameters?.filename || node.parameters?.name;
+  if (fname && disp !== 'inline' && !type.startsWith('multipart/') && !type.startsWith('text/')) return true;
+  if (Array.isArray(node.childNodes)) return node.childNodes.some(structHasAttachment);
+  return false;
+}
+
+// Lista as pastas (mailboxes) da conta. Com withCounts, anexa unseen/total (client.status)
+// em paralelo — usado pelo drawer do app pra mostrar badges de não-lidas.
+export async function listFolders(account, { withCounts = false } = {}) {
   return withClient(account, async (client) => {
     const list = await client.list();
-    return list.map((m) => ({
+    const base = list.map((m) => ({
       path: m.path,
       name: m.name,
       specialUse: m.specialUse || null,
       subscribed: !!m.subscribed,
     }));
+    if (!withCounts) return base;
+    await Promise.allSettled(base.map(async (f) => {
+      try {
+        const st = await client.status(f.path, { unseen: true, messages: true });
+        f.unseen = st.unseen ?? 0;
+        f.total = st.messages ?? 0;
+      } catch {
+        f.unseen = 0; f.total = 0;
+      }
+    }));
+    return base;
   });
 }
 
@@ -144,7 +168,7 @@ export async function listMessages(account, { folder = 'INBOX', limit = 25, offs
 
       const messages = [];
       for await (const msg of client.fetch(`${start}:${end}`, {
-        uid: true, envelope: true, flags: true, internalDate: true, size: true,
+        uid: true, envelope: true, flags: true, internalDate: true, size: true, bodyStructure: true,
       })) {
         messages.push(formatEnvelope(msg, account, folder));
       }
@@ -174,7 +198,7 @@ export async function searchMessages(account, { folder = 'INBOX', query, limit =
       const pick = uids.slice(-limit);
       const messages = [];
       for await (const msg of client.fetch(pick, {
-        uid: true, envelope: true, flags: true, internalDate: true, size: true,
+        uid: true, envelope: true, flags: true, internalDate: true, size: true, bodyStructure: true,
       }, { uid: true })) {
         messages.push(formatEnvelope(msg, account, folder));
       }
@@ -272,6 +296,7 @@ function formatEnvelope(msg, account, folder) {
     date: env.date || msg.internalDate || null,
     seen: (msg.flags && (msg.flags.has ? msg.flags.has('\\Seen') : msg.flags.includes?.('\\Seen'))) || false,
     flagged: (msg.flags && (msg.flags.has ? msg.flags.has('\\Flagged') : msg.flags.includes?.('\\Flagged'))) || false,
+    hasAttachments: structHasAttachment(msg.bodyStructure),
     size: msg.size || 0,
   };
 }
