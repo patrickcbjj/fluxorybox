@@ -1,0 +1,8 @@
+{
+  "_comentario": "Segredos deste projeto (fora do git) sincronizados pelo cofre fluxvault. Caminhos relativos resolvem contra a raiz do projeto; ~ = home. Sem segredos aqui, pode versionar.",
+  "secrets": [
+    { "name": "fluxorybox-backend-env",     "path": "backend/.env" },
+    { "name": "fluxorybox-google-services", "path": "mobile/android/app/google-services.json" },
+    { "name": "android-debug-keystore",     "path": "~/.android/debug.keystore" }
+  ]
+}
