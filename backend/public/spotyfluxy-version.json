@@ -1,6 +1,6 @@
 {
-  "versionCode": 1,
-  "versionName": "1.0.0",
-  "apkUrl": "/SpotyFluxy-1.0.0.apk",
-  "notes": "Primeira versão do SpotyFluxy: seu player com o catálogo do Spotify."
+  "versionCode": 2,
+  "versionName": "1.0.1",
+  "apkUrl": "/SpotyFluxy-1.0.1.apk",
+  "notes": "Correção do bug da tela: a grade de playlists agora aparece e dá pra escolher (a barra do player não ocupa mais a tela toda)."
 }

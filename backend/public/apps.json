@@ -5,8 +5,8 @@
       "name": "SpotyFluxy",
       "tagline": "Seu player. Motor Spotify.",
       "description": "Player Android próprio que usa o Spotify como motor de áudio: navegue suas playlists e toque com a sua cara. Requer conta Premium e o app do Spotify instalado.",
-      "version": "1.0.0",
-      "apk": "/SpotyFluxy-1.0.0.apk",
+      "version": "1.0.1",
+      "apk": "/SpotyFluxy-1.0.1.apk",
       "icon": "/spotyfluxy-icon.png",
       "accent": "#1DB954",
       "site": ""
