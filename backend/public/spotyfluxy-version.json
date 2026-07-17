@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "1.0.1",
-  "apkUrl": "/SpotyFluxy-1.0.1.apk",
-  "notes": "Correção do bug da tela: a grade de playlists agora aparece e dá pra escolher (a barra do player não ocupa mais a tela toda)."
+  "versionCode": 3,
+  "versionName": "1.0.2",
+  "apkUrl": "/SpotyFluxy-1.0.2.apk",
+  "notes": "Biblioteca completa (Curtidas, Recentes, Playlists, Álbuns, Artistas, Mais tocadas) + Busca. Player em tela cheia com capa e progresso. Mini-player mostra a capa. Login lembra a conta (conecta sozinho). Tocar em playlists/faixas agora funciona."
 }
