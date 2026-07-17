@@ -1,0 +1,44 @@
+{
+  "_comentario": "Catálogo de APKs do hub de downloads (/apps.html). Pra publicar um app novo: jogue o .apk em public/ e adicione uma entrada aqui. Nada de código.",
+  "apps": [
+    {
+      "name": "SpotyFluxy",
+      "tagline": "Seu player. Motor Spotify.",
+      "description": "Player Android próprio que usa o Spotify como motor de áudio: navegue suas playlists e toque com a sua cara. Requer conta Premium e o app do Spotify instalado.",
+      "version": "1.0.0",
+      "apk": "/SpotyFluxy-1.0.0.apk",
+      "accent": "#1DB954",
+      "site": ""
+    },
+    {
+      "name": "FluxyDrive",
+      "tagline": "Sua nuvem, seus arquivos",
+      "description": "Seu Drive próprio: envie e baixe arquivos direto no app, organize em pastas e transfira em segundo plano. Web e Android.",
+      "version": "1.0.6",
+      "apk": "/FluxyDrive-1.0.6.apk",
+      "icon": "/fluxydrive-icon.png",
+      "accent": "#7C6CFF",
+      "site": "https://fluxydrive.discloud.app"
+    },
+    {
+      "name": "FluxoryBox",
+      "tagline": "Seus emails, num lugar só",
+      "description": "Cliente de email unificado (Gmail, Outlook e mais) na web e no Android.",
+      "version": "1.1.15 beta",
+      "apk": "/FluxoryBox-1.1.15-beta.apk",
+      "icon": "/logo.png",
+      "accent": "#6d7cff",
+      "site": "/"
+    },
+    {
+      "name": "Casa Smart",
+      "tagline": "Sua casa no bolso",
+      "description": "Controle luzes, tomadas, TV e ar-condicionado à distância. Energia com gráfico ao vivo, painel da casa e projeção de conta; atalhos, agendamentos, home por cômodos, e widgets de tela inicial.",
+      "version": "1.3.1",
+      "apk": "/CasaSmart-1.3.1.apk",
+      "icon": "/casa-smart-icon.png",
+      "accent": "#4F8CFF",
+      "site": ""
+    }
+  ]
+}
