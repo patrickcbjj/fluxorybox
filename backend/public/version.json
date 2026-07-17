@@ -1,6 +1,6 @@
 {
-  "versionCode": 2017,
-  "versionName": "1.1.14",
-  "apkUrl": "/FluxoryBox-1.1.14-beta.apk",
-  "notes": "Nova cara estilo Outlook: menu lateral com suas contas e pastas (com contador de não lidas), abas Destaques/Outros, botão Filtrar (não lidos, favoritos, com anexo) e e-mails agrupados por data (Hoje, Esta semana, etc). Correção: links dentro dos e-mails agora abrem ao tocar."
+  "versionCode": 2018,
+  "versionName": "1.1.15",
+  "apkUrl": "/FluxoryBox-1.1.15-beta.apk",
+  "notes": "Notificações por conta agora funcionam de verdade: ao ligar/desligar o push de um e-mail específico, a escolha é salva no aparelho e reaplicada sozinha (não volta mais a ligar depois de atualizações do servidor). O botão geral de notificações também para de se reativar sozinho ao reabrir o app."
 }

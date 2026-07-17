@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 
 // Handler de mensagem em segundo plano (app fechado/background). Precisa ser top-level
@@ -92,8 +93,79 @@ class Notifications {
     _ready = true;
   }
 
+  // Preferência do usuário, salva no aparelho. Sem isso o "desligado" só existia como
+  // ausência do token no backend — e qualquer re-registro (boot, refresh de token)
+  // ressuscitava as notificações. null = usuário nunca escolheu.
+  static const _prefKey = 'notif_enabled';
+  static bool _tokenListenerOn = false;
+
+  static Future<bool?> _pref() async {
+    final p = await SharedPreferences.getInstance();
+    return p.containsKey(_prefKey) ? p.getBool(_prefKey) : null;
+  }
+
+  static Future<void> _setPref(bool v) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_prefKey, v);
+  }
+
+  // Preferência de push POR CONTA, guardada no aparelho (chave = email, que é estável;
+  // o `id` muda quando o backend re-semeia as contas). Guardamos só as contas SILENCIADAS
+  // (ausência = ligada, o default). Necessário porque o banco da Discloud é recriado a cada
+  // deploy e o `notify` de todas as contas volta ao default LIGADO — o aparelho é a fonte de
+  // verdade e re-assere o silenciamento no boot (igual o token de push, que também é re-registrado).
+  static const _acctOffKey = 'notif_accounts_off';
+
+  static Future<Set<String>> _accountsOff() async {
+    final p = await SharedPreferences.getInstance();
+    return (p.getStringList(_acctOffKey) ?? const <String>[]).toSet();
+  }
+
+  /// Grava no aparelho se a conta (por email) deve ou não notificar.
+  static Future<void> setAccountEnabled(String email, bool on) async {
+    if (email.isEmpty) return;
+    final p = await SharedPreferences.getInstance();
+    final set = (p.getStringList(_acctOffKey) ?? const <String>[]).toSet();
+    if (on) { set.remove(email); } else { set.add(email); }
+    await p.setStringList(_acctOffKey, set.toList());
+  }
+
+  /// Re-aplica no backend os silenciamentos por-conta salvos no aparelho. Chamar no boot,
+  /// depois de carregar as contas: se um deploy recriou o banco (notify → LIGADO), isto
+  /// religa o silenciamento das contas que o usuário desativou. Corrige só o que divergir.
+  static Future<void> syncAccountOverrides(List accounts) async {
+    if (await _pref() == false) return; // push geral desligado: não há o que reasserir
+    final off = await _accountsOff();
+    if (off.isEmpty) return;
+    for (final a in accounts) {
+      if (a is! Map) continue;
+      final email = a['email']?.toString() ?? '';
+      final id = a['id'] is int ? a['id'] as int : int.tryParse('${a['id']}');
+      if (email.isEmpty || id == null) continue;
+      final wantOn = !off.contains(email);
+      if ((a['notify'] != false) == wantOn) continue; // já está como o usuário quer
+      try {
+        await Api.setAccountNotify(id, wantOn);
+        a['notify'] = wantOn; // reflete localmente pra a UI não mostrar divergência
+      } catch (_) {/* tenta de novo no próximo boot */}
+    }
+  }
+
+  /// Estado do toggle na UI: só está ligado se o usuário quer E o Android permite.
+  static Future<bool> isEnabled() async {
+    if (await _pref() == false) return false;
+    return hasPermission();
+  }
+
+  /// Chamada no boot. Respeita o "desligado" — nunca re-registra por conta própria.
+  static Future<void> registerIfEnabled() async {
+    if (await _pref() == false) return;
+    if (!await hasPermission()) return; // sem permissão, não insiste a cada abertura
+    await requestAndRegister();
+  }
+
   /// Pede permissão de notificação (Android 13+ / iOS) e registra o token no backend.
-  /// Chamar depois do login (quando já há sessão pra associar o token).
+  /// Só deve ser chamada por ação do usuário ou por registerIfEnabled().
   static Future<bool> requestAndRegister() async {
     final messaging = FirebaseMessaging.instance;
     final settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
@@ -101,10 +173,14 @@ class Notifications {
         settings.authorizationStatus == AuthorizationStatus.provisional;
     if (!granted) return false;
 
+    await _setPref(true);
     final token = await messaging.getToken();
     if (token != null) await _safeRegister(token);
-    // Re-registra se o token rotacionar.
-    messaging.onTokenRefresh.listen(_safeRegister);
+    // Re-registra se o token rotacionar (um listener só, senão empilha a cada chamada).
+    if (!_tokenListenerOn) {
+      _tokenListenerOn = true;
+      messaging.onTokenRefresh.listen(_safeRegister);
+    }
     return true;
   }
 
@@ -116,12 +192,19 @@ class Notifications {
   }
 
   static Future<void> _safeRegister(String token) async {
+    if (await _pref() == false) return; // desligado pelo usuário: não ressuscita
     try {
       await Api.registerPush(token);
     } catch (_) {/* silencioso — tenta de novo no próximo boot/refresh */}
   }
 
-  /// Remove o token no backend (no logout).
+  /// Desliga o push a pedido do usuário: grava a escolha e remove o token no backend.
+  static Future<void> disable() async {
+    await _setPref(false);
+    await unregister();
+  }
+
+  /// Remove o token no backend (no logout). Não mexe na preferência.
   static Future<void> unregister() async {
     try {
       final token = await FirebaseMessaging.instance.getToken();

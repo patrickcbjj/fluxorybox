@@ -67,9 +67,14 @@ export default async function accountsRoutes(app) {
   // Liga/desliga a notificação (push) de uma conta.
   app.post('/api/accounts/:id/notify', async (req, reply) => {
     const id = Number(req.params.id);
-    const notify = req.body?.notify !== false;
+    // Exige boolean explícito: um corpo ausente/malformado não pode LIGAR o push sem querer.
+    const notify = req.body?.notify;
+    if (typeof notify !== 'boolean') {
+      return reply.code(400).send({ error: 'notify (true/false) é obrigatório' });
+    }
     const ok = setNotify(id, notify);
     if (!ok) return reply.code(404).send({ error: 'conta não encontrada' });
+    console.log(`[notify] conta ${id} → ${notify ? 'ligada' : 'desligada'}`);
     return { ok: true, notify };
   });
 

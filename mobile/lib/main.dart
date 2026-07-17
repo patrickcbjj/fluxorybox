@@ -346,7 +346,8 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
     Notifications.setMessageHandler(_openFromNotification);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Updater.check(context);
-      Notifications.requestAndRegister();
+      // Só re-registra se o usuário não tiver desligado o push nas Configurações.
+      Notifications.registerIfEnabled();
     });
   }
 
@@ -397,6 +398,9 @@ class _InboxScreenState extends State<InboxScreen> with WidgetsBindingObserver {
       _accounts = await Api.accounts();
       gAccounts = _accounts;
       Cache.saveAccounts(_accounts);
+      // Re-aplica silenciamentos por-conta salvos no aparelho (o deploy do backend
+      // recria o banco e volta o notify pra LIGADO — o aparelho reassere a escolha).
+      Notifications.syncAccountOverrides(_accounts);
     } catch (_) {}
     await _load(reset: true, silent: cachedList.isNotEmpty);
   }
@@ -1613,7 +1617,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
 
   Future<void> _load() async {
     try { _accounts = await Api.accounts(); } catch (_) {}
-    try { _notifOn = await Notifications.hasPermission(); } catch (_) {}
+    try { _notifOn = await Notifications.isEnabled(); } catch (_) {}
     try {
       final info = await PackageInfo.fromPlatform();
       _version = '${info.version} (${info.buildNumber})';
@@ -1632,13 +1636,15 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
       if (!ok && mounted) { setState(() => _notifOn = false); _snack('Permissão de notificação negada nas configurações do Android.'); }
       else { _snack('Notificações ativadas.'); }
     } else {
-      await Notifications.unregister();
+      await Notifications.disable();
       _snack('Notificações desativadas neste aparelho.');
     }
   }
 
   Future<void> _toggleAccountNotif(Map a, bool on) async {
     setState(() => a['notify'] = on);
+    // Guarda a escolha no aparelho (fonte de verdade que sobrevive a redeploy do backend).
+    await Notifications.setAccountEnabled(a['email']?.toString() ?? '', on);
     try {
       await Api.setAccountNotify(a['id'], on);
     } catch (e) {
